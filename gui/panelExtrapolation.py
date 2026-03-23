@@ -110,9 +110,9 @@ class TabExtrapolation(ScrolledPanel):
         list_occ_sizer.Add(self.ListTextCtrl, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 10)
 
         self.occ_sizer_final = wx.StaticBoxSizer(Occ, wx.VERTICAL)
-        self.occ_sizer_final.Add(occ_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 0)
+        self.occ_sizer_final.Add(occ_sizer, 0, wx.ALL, 0)
         #self.occ_sizer_final.AddSpacer(20)
-        self.occ_sizer_final.Add(list_occ_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 0)
+        self.occ_sizer_final.Add(list_occ_sizer, 0, wx.ALL, 0)
 
         ########################
         ###  FoFo (earlier called Maps and Scaling)  ###
@@ -495,4 +495,3 @@ class TabExtrapolation(ScrolledPanel):
             self.kscale.Enable()
         else:
             self.kscale.Disable()
-

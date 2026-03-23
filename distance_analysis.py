@@ -465,9 +465,9 @@ class Distance_analysis(object):
         Just remove all brackets from string
         """
         while '(' in string:
-            string = re.sub('\(', '', string)
+            string = string.replace('(', '')
         while ')' in string:
-            string = re.sub('\)','', string)
+            string = string.replace(')', '')
         return string
 
     def get_all_distances(self):#, mindiff = 0.05):

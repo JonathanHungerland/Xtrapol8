@@ -170,11 +170,11 @@ class TabExtrapolation(ScrolledPanel):
         self.kfextr_calc = wx.CheckBox(self, id=wx.ID_ANY, label="kfextr_calc")
         self.qfextr.SetValue(True)
 
-        self.ID1 = wx.NewId()
-        self.ID2 = wx.NewId()
-        self.ID3 = wx.NewId()
-        self.ID4 = wx.NewId()
-        self.ID5 = wx.NewId()
+        self.ID1 = wx.Window.NewControlId()
+        self.ID2 = wx.Window.NewControlId()
+        self.ID3 = wx.Window.NewControlId()
+        self.ID4 = wx.Window.NewControlId()
+        self.ID5 = wx.Window.NewControlId()
 
         self.qwFextr = [self.qfextr, self.qfgenick, self.qfextr_calc]
         self.non_qwFextr = [self.fextr, self.fgenick, self.fextr_calc]

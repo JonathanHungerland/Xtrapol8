@@ -18,11 +18,11 @@ see https://github.com/ElkeDeZitter/Xtrapol8/blob/main/LICENSE
 import wx
 import string
 
-class CharValidator(wx.PyValidator):
+class CharValidator(wx.Validator):
     ''' Validates data as it is entered into the text controls. '''
 
     def __init__(self, flag):
-        wx.PyValidator.__init__(self)
+        super().__init__()
         self.flag = flag
         self.Bind(wx.EVT_CHAR, self.OnChar)
 
@@ -45,11 +45,10 @@ class CharValidator(wx.PyValidator):
             #print keycode
             key = chr(keycode)
             #print key
-            if self.flag == 'no-alpha' and key in string.letters:
+            if self.flag == 'no-alpha' and key in string.ascii_letters:
                 return
             if self.flag == 'no-digit' and key in string.digits:
                 return
         event.Skip()
-
 
 

@@ -199,7 +199,7 @@ class X8Thread(Thread):
         self._stop.set()
 
     def stopped(self):
-        return self._stop.isSet()
+        return self._stop.is_set()
 
 ########################################################################
 ########################################################################

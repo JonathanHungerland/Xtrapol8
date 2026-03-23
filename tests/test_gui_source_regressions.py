@@ -71,6 +71,12 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "X8_gui.py").read_text()
         self.assertIn("text=True, encoding='utf-8', errors='replace'", text)
 
+    def test_x8_thread_uses_non_deprecated_event_api(self):
+        """Covers thread stop checks so Python 3.10 does not warn on deprecated Event.isSet()."""
+        text = (REPO_ROOT / "X8_gui.py").read_text()
+        self.assertIn("return self._stop.is_set()", text)
+        self.assertNotIn("isSet()", text)
+
     def test_panel_extrapolation_uses_window_newcontrolid(self):
         """Covers the Phoenix-safe control ID creation path in the extrapolation panel."""
         text = (REPO_ROOT / "gui" / "panelExtrapolation.py").read_text()
@@ -99,6 +105,12 @@ class GuiSourceRegressionTests(unittest.TestCase):
         """Covers failed runs so the results tab does not raise a second exception for a missing pickle."""
         text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
         self.assertIn("if not os.path.isfile(pickle_fn):\n            return", text)
+
+    def test_panel_log_normalizes_non_string_log_lines(self):
+        """Covers log updates so bytes-like payloads are coerced to text before marker matching."""
+        text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn("if not isinstance(line, str):", text)
+        self.assertIn("if hasattr(line, \"decode\"):", text)
 
 
 if __name__ == "__main__":

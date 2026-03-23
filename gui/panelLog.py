@@ -211,8 +211,11 @@ class TabLog(wx.Panel):
                 self.LOG_IDX.extend(self.LOG_IDX_OCC_CNC)
 
     def updateLog(self, line):
-        if isinstance(line, bytes):
-            line = line.decode("utf-8", "replace")
+        if not isinstance(line, str):
+            if hasattr(line, "decode"):
+                line = line.decode("utf-8", "replace")
+            else:
+                line = str(line)
         self.LogTextCtrl.WriteText(line)
         try:
 
@@ -1287,7 +1290,6 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
 
 
 

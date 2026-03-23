@@ -201,7 +201,7 @@ def do_blob_search(map_object, threshold, peak, coord_pdb, radius, info):
     #print("done")
     # Nasty but remove duplicate / Use of a decorator ?
     #arr_all_atoms = np.array(list(set(tuple(all_atoms))))
-    all_atoms = np.array(all_atoms)
+    all_atoms = np.array(all_atoms, dtype=object)
 
     if all_atoms.size > 0:
         sorted_indices = np.argsort(all_atoms[:, 8].astype(np.float32))
@@ -435,5 +435,4 @@ class XPLOR_Maps(Maps):
         self.unit_cell = np.array(self.map_object.unit_cell.parameters(), dtype=np.float32)
         self.data = self.map_object.data.as_numpy_array()
         self.coord_transform_setup()
-
 

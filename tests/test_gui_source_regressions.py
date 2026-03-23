@@ -127,6 +127,11 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("if not isinstance(line, str):", text)
         self.assertIn("if hasattr(line, \"decode\"):", text)
 
+    def test_map_explorer_uses_object_array_for_ragged_blob_rows(self):
+        """Covers map-explorer blob collection so variable-length voxel-index payloads do not crash NumPy conversion."""
+        text = (REPO_ROOT / "map_explorer.py").read_text()
+        self.assertIn("all_atoms = np.array(all_atoms, dtype=object)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

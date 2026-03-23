@@ -66,6 +66,11 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "X8_gui.py").read_text()
         self.assertIn("if phil_file is None:\n            return", text)
 
+    def test_x8_thread_decodes_subprocess_output_as_text(self):
+        """Covers GUI log updates so worker output reaches pubsub as text instead of raw bytes."""
+        text = (REPO_ROOT / "X8_gui.py").read_text()
+        self.assertIn("text=True, encoding='utf-8', errors='replace'", text)
+
     def test_panel_extrapolation_uses_window_newcontrolid(self):
         """Covers the Phoenix-safe control ID creation path in the extrapolation panel."""
         text = (REPO_ROOT / "gui" / "panelExtrapolation.py").read_text()
@@ -89,6 +94,11 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
         self.assertIn("self.mainSizer.Add(self.occNfextrSizer, 0, wx.ALL, border=5)", text)
         self.assertIn("self.mainSizer.Add(self.ImgSizer, 1, wx.ALIGN_CENTER_HORIZONTAL)", text)
+
+    def test_panel_log_skips_missing_occupancy_pickle_on_finish(self):
+        """Covers failed runs so the results tab does not raise a second exception for a missing pickle."""
+        text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn("if not os.path.isfile(pickle_fn):\n            return", text)
 
 
 if __name__ == "__main__":

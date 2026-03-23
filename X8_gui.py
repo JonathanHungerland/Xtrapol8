@@ -178,7 +178,8 @@ class X8Thread(Thread):
         #pub.sendMessage("END", Nlog=self.Nlog)
         #return
         p = subprocess.Popen(['phenix.python', os.path.join(script_dir, 'Fextr.py'), 'tmp.phil'],
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, encoding='utf-8', errors='replace')
 
         while True:
 

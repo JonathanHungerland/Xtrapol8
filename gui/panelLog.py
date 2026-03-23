@@ -211,6 +211,8 @@ class TabLog(wx.Panel):
                 self.LOG_IDX.extend(self.LOG_IDX_OCC_CNC)
 
     def updateLog(self, line):
+        if isinstance(line, bytes):
+            line = line.decode("utf-8", "replace")
         self.LogTextCtrl.WriteText(line)
         try:
 
@@ -1266,6 +1268,8 @@ class TabOccResults(ScrolledPanel):
 
     def onFinished(self):
         pickle_fn = os.path.join(self.options.output.outdir,"occupancy_recap.pickle")
+        if not os.path.isfile(pickle_fn):
+            return
         results = pickle.load(open(pickle_fn, "rb"))
         fextrs = self.options.f_and_maps.f_extrapolated_and_maps
         for fextr in fextrs:
@@ -1283,7 +1287,6 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
 
 
 

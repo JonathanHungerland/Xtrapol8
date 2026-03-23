@@ -365,7 +365,7 @@ class DataHandler(object):
                     try:
                         cif_object=mmtbx.monomer_library.server.read_cif(file_name=fle)
                     except Exception:
-                        raise  AssertionError,"Unable to read the cif file "+fle
+                        raise AssertionError("Unable to read the cif file " + fle)
                     else:
                         if (len(cif_object) > 0):
                             self.cif_objects.append((fle,cif_object))
@@ -470,7 +470,7 @@ class DataHandler(object):
                 #else:
                     #selection.append(False)
             #self.fmodel.select(selection)
-            dt = np.dtype([('h', np.int) ,('k',np.int),('l',np.int)])
+            dt = np.dtype([('h', int), ('k', int), ('l', int)])
             f1 = np.array(self.fmodel.f_obs().indices(), dtype=dt)
             f2 = np.array(fobs.indices(), dtype=dt)
             selection = np.nonzero(np.in1d(f1, f2))[0]
@@ -478,7 +478,7 @@ class DataHandler(object):
             
             sel = np.zeros(f1.shape[0])
             np.put(sel, selection, 1)
-            sel_bool = map(lambda x: bool(int(x)), list(sel))
+            sel_bool = [bool(int(x)) for x in sel]
             selection_flags = flex.bool(sel_bool)
             self.fmodel = self.fmodel.select(selection_flags)
             
@@ -1211,7 +1211,7 @@ class Fextrapolate(object):
         if fmodel_f_obs.data().size() < self.fmodel_fobs_off.f_obs().data().size():
             rfree, miller_array = self.rfree.common_sets(miller_array)
             
-            dt = np.dtype([('h', np.int) ,('k',np.int),('l',np.int)])
+            dt = np.dtype([('h', int), ('k', int), ('l', int)])
             f1 = np.array(self.fmodel_fobs_off.f_obs().indices(), dtype=dt)
             f2 = np.array(fmodel_f_obs.indices(), dtype=dt)
             selection = np.nonzero(np.in1d(f1, f2))[0]
@@ -1219,7 +1219,7 @@ class Fextrapolate(object):
             
             sel = np.zeros(f1.shape[0])
             np.put(sel, selection, 1)
-            sel_bool = map(lambda x: bool(int(x)), list(sel))
+            sel_bool = [bool(int(x)) for x in sel]
             selection_flags = flex.bool(sel_bool)
             fmodel_fobs_off = self.fmodel_fobs_off.select(selection_flags)
             
@@ -2940,7 +2940,7 @@ def run(args):
                 
             #Make a plot of the refinement R-factors, related to the specific maptype. The log-files should have the same prefix as the mtz-files.
             #This assumption is made in order to avoid storing the log-files in even another list
-            plot_Rfactors_per_alpha(map(lambda fle: re.sub(r'mtz$','log', fle), recref_mtz_lst), mp_type)
+            plot_Rfactors_per_alpha([re.sub(r'mtz$', 'log', fle) for fle in recref_mtz_lst], mp_type)
             print("", file=log)
             print("")
             
@@ -2969,24 +2969,24 @@ def run(args):
             pymol_pdb_list.remove(DH.pdb_in)
             pymol_mtz_list = recref_mtz_lst[:]
             if outname == 'triggered': #if dummy name applied, the files still contain the dummy name
-                pymol_mtz_list = map(lambda fle: re.sub(r"triggered",params.output.outname, fle), pymol_mtz_list)
-                pymol_pdb_list = map(lambda fle: re.sub(r"triggered",params.output.outname, fle), pymol_pdb_list)
+                pymol_mtz_list = [re.sub(r"triggered", params.output.outname, fle) for fle in pymol_mtz_list]
+                pymol_pdb_list = [re.sub(r"triggered", params.output.outname, fle) for fle in pymol_pdb_list]
             #Make Pymol movie with the reciprocal space refined maps if recrealref_lst is complete
             #Otherwise use the real space refined models + direct maps
             if pdb_list == recrealref_lst:
-                ccp4_list = map(lambda fle: re.sub(r".mtz$", "_2mFo-DFc_filled.ccp4", fle), pymol_mtz_list)
+                ccp4_list = [re.sub(r".mtz$", "_2mFo-DFc_filled.ccp4", fle) for fle in pymol_mtz_list]
                 model_label = '%s_reciprocal_real_space'%(mp_type)
                 ccp4_map_label = '%s_reciprocal_space'%(mp)
                 #Pymol_movie(params.occupancies.list_occ, pdblst=pymol_pdb_list, ccp4_maps = ccp4_list, resids_lst = residlst, model_label='%s_reciprocal_real_space'%(mp_type), ccp4_map_label='%s_reciprocal_space'%(mp)).write_pymol_script()
             else: 
                 if mp == 'qFgenick_map':
-                    ccp4_list = map(lambda fle: re.search("(.+?)2mqFgenick-DFc_reciprocal", fle).group(1)+"mqFgenick-DFc.ccp4", pymol_mtz_list)
+                    ccp4_list = [re.search(r"(.+?)2mqFgenick-DFc_reciprocal", fle).group(1) + "mqFgenick-DFc.ccp4" for fle in pymol_mtz_list]
                 elif mp == 'kFgenick_map':
-                    ccp4_list = map(lambda fle: re.search("(.+?)2mkFgenick-DFc_reciprocal", fle).group(1)+"mkFgenick-DFc.ccp4", pymol_mtz_list)
+                    ccp4_list = [re.search(r"(.+?)2mkFgenick-DFc_reciprocal", fle).group(1) + "mkFgenick-DFc.ccp4" for fle in pymol_mtz_list]
                 elif mp == 'Fgenick_map':
-                    ccp4_list = map(lambda fle: re.search("(.+?)2mFgenick-DFc_reciprocal", fle).group(1)+"mFgenick-DFc.ccp4", pymol_mtz_list)
+                    ccp4_list = [re.search(r"(.+?)2mFgenick-DFc_reciprocal", fle).group(1) + "mFgenick-DFc.ccp4" for fle in pymol_mtz_list]
                 else:
-                    ccp4_list = map(lambda fle: re.search("(.+?)\_reciprocal", fle).group(1)+".ccp4", pymol_mtz_list)
+                    ccp4_list = [re.search(r"(.+?)_reciprocal", fle).group(1) + ".ccp4" for fle in pymol_mtz_list]
                 model_label='%s_real_space'%(mp_type)
                 ccp4_map_label='%s'%(mp)
             if len(ccp4_list) == len(pymol_pdb_list) == len(params.occupancies.list_occ):

@@ -891,9 +891,9 @@ class TabOccResults(ScrolledPanel):
         self.ImgSizer = wx.BoxSizer(wx.VERTICAL)
 
         self.mainSizer.AddSpacer(30)
-        self.mainSizer.Add(self.occNfextrSizer, 0,  wx.ALIGN_CENTER_VERTICAL | wx.ALL, border=5)
+        self.mainSizer.Add(self.occNfextrSizer, 0, wx.ALL, border=5)
         self.mainSizer.AddSpacer(30)
-        self.mainSizer.Add(self.ImgSizer, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_CENTER_VERTICAL)
+        self.mainSizer.Add(self.ImgSizer, 1, wx.ALIGN_CENTER_HORIZONTAL)
         self.SetSizer(self.mainSizer)
         self.SetAutoLayout(1)
 
@@ -1283,7 +1283,6 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
 
 
 

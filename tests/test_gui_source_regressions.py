@@ -84,6 +84,12 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("self.occ_sizer_final.Add(occ_sizer, 0, wx.ALL, 0)", text)
         self.assertIn("self.occ_sizer_final.Add(list_occ_sizer, 0, wx.ALL, 0)", text)
 
+    def test_panel_log_adds_child_sizers_without_vertical_alignment_flags(self):
+        """Covers the Phoenix sizer assertion in the occupancy results tab."""
+        text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn("self.mainSizer.Add(self.occNfextrSizer, 0, wx.ALL, border=5)", text)
+        self.assertIn("self.mainSizer.Add(self.ImgSizer, 1, wx.ALIGN_CENTER_HORIZONTAL)", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -174,7 +174,7 @@ def get_name (fle):
         #find name independent of the lengt of the file_format
         name = re.search(r"\/(.+?)\%s$"%(file_format), fle).group(1).split("/")[-1]
     else:
-        name = re.sub("\%s$"%(file_format), "", fle)
+        name = re.sub(r"%s$" % (file_format), "", fle)
 
     #if len(name)>80:
         
@@ -191,7 +191,7 @@ def get_pdb_name(pdb_file):
     if "/" in pdb_file:
         name = re.search(r"\/(.+?)\.pdb$", pdb_file).group(1).split("/")[-1]
     else:
-        name = re.sub("\.pdb$","",pdb_file)
+        name = re.sub(r"\.pdb$", "", pdb_file)
     #if len(name)>80:
         #print("%s is a long name, let's call it %s" %(name, name[:30]+name[-30:]))
         #name = name[:30]+name[-30:]
@@ -624,7 +624,7 @@ def plot_Rfactors_per_alpha(refine_log_lst, maptype):
     occ_lst    = flex.double()
     for log_file in refine_log_lst:
         if os.path.isfile(log_file):
-            occ = float(re.search('occupancy\_(.+?)\/', log_file).group(1))
+            occ = float(re.search(r"occupancy_(.+?)/", log_file).group(1))
             occ_lst.append(occ)
             with open(log_file) as fle:
                 log = fle.readlines()
@@ -1221,7 +1221,7 @@ def plot_negative_reflections_allinone(pickle_file='Fextr_negative.pickle'):
 def calculate_R(f_obs, f_calc): #to avoid a scale factor being taken into account
     #return abs(np.sum(abs(f_obs.data())-abs(f_calc.data())))/np.sum(abs(f_obs.data()))
     """
-    Calculates normal R-factor frac(sum(||F| - k|F'||))(\sum(|F|)). For Riso, should be better to use frac(sum(||F| - k|F'||))(\sum((|F|+|F'|)/2))
+    Calculates normal R-factor sum(||F| - k|F'||) / sum(|F|). For Riso, it is better to use sum(||F| - k|F'||) / sum((|F| + |F'|) / 2).
     """
     return f_obs.r1_factor(f_calc)
 
@@ -1240,7 +1240,7 @@ def calculate_Riso(f_obs1, f_obs2):
 def compute_r_factors(f_obs, f_calc, r_free_flags, log=sys.stdout):
     """
     R-factorcan can be calculated using miller-build in function .r1_factor (with or without emulate_sftools=True
-    Using .r1_factor, R is calculated as R1 = frac(sum(||F| - k|F'||))(\sum(|F|)) where F is self.data() and F' is other.data() and k is the factor to put F' on the same scale as F.
+    Using .r1_factor, R is calculated as R1 = sum(||F| - k|F'||) / sum(|F|), where F is self.data(), F' is other.data(), and k rescales F' to F.
     For calculation of Riso values:
         - Rfree and ccfree probably don't tell you anything
         - Riso the denominator is different as compared to standard R-factors. Nevertheless, the standard R-factor should be a proper approximation

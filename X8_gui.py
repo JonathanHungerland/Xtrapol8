@@ -236,10 +236,12 @@ class MainFrame(wx.Frame):
 
         # Adding the ToolBar
         self.ToolBar = wx.ToolBar(self, -1)
-        self.ToolBar.SetToolBitmapSize(size=(1, 1))
-        # self.ToolBar.AddTool(101, wx.Bitmap(os.path.join(script_dir,"gui/pngs/settings_scaled.png")))
-        self.ToolBar.AddTool(102, wx.Bitmap(os.path.join(script_dir,"gui/pngs/run_scaled.png")))
-        self.ToolBar.AddTool(103, wx.Bitmap(os.path.join(script_dir,"gui/pngs/cancel_scaled.png")))
+        run_bmp = wx.Bitmap(os.path.join(script_dir, "gui/pngs/run_scaled.png"))
+        cancel_bmp = wx.Bitmap(os.path.join(script_dir, "gui/pngs/cancel_scaled.png"))
+        self.ToolBar.SetToolBitmapSize(run_bmp.GetSize())
+        # self.ToolBar.AddTool(101, "", wx.Bitmap(os.path.join(script_dir, "gui/pngs/settings_scaled.png")))
+        self.ToolBar.AddTool(102, "", run_bmp, shortHelp="Run Xtrapol8")
+        self.ToolBar.AddTool(103, "", cancel_bmp, shortHelp="Cancel current run")
         self.ToolBar.Bind(wx.EVT_TOOL, self.OnToolBar)
         self.ToolBar.Realize()
 

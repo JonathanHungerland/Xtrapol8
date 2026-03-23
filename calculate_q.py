@@ -95,12 +95,12 @@ def calculate_q(f_obs_ref, f_obs_2, log=sys.stdout):
 
     cent = f_obs_ref.centric_flags()
     mult = f_obs_ref.multiplicities()
-    mult = flex.double(map(lambda x: float(x), mult.data()))
+    mult = flex.double([float(x) for x in mult.data()])
     mult = miller.array(miller_set= cent, data = mult)
     stol = f_obs_ref.unit_cell().stol(f_obs_ref.indices())
     res  = 1/(2*stol)
     res  = miller.array(miller_set= cent, data = res)
-    num  = flex.double(map(lambda x: float(x+1),cent.data()))
+    num  = flex.double([float(x + 1) for x in cent.data()])
     num  = miller.array(miller_set= cent, data = num)
 
     DECONV   = flex.double()

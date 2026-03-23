@@ -37,10 +37,13 @@ import pickle
 import glob
 import math
 import sys
-sys.path.append("..")
+gui_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(gui_dir)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 from Fextr_utils import get_name
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
+script_dir = gui_dir
 
 class GradientButton (metallicbutton.MetallicButton):
     def __init__ (self, parent, label='', label2='', bmp=None,

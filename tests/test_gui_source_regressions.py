@@ -17,6 +17,7 @@ class GuiSourceRegressionTests(unittest.TestCase):
             "sys.maxint",
             "InsertStringItem(",
             "SetStringItem(",
+            "unicode)",
             "wx.PyValidator",
             "string.letters",
             "wx.NewId(",

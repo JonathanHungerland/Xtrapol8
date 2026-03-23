@@ -289,16 +289,9 @@ class TabExtrapolation(ScrolledPanel):
         ScalingLowResTxt.SetFont(defont)
         self.ScalingLowRes = wx.TextCtrl(self, wx.ID_ANY, "", style=wx.TE_PROCESS_ENTER, size=(width_TextCtrl, height_TextCtrl))
         
-        SR_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        SR_sizer.Add(ScalingHighResTxt, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 10)
-        SR_sizer.Add(self.ScalingHighRes, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 10)
-        # SR_sizer.AddSpacer(30)
-        SR_sizer.Add(ScalingLowResTxt, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 10)
-        SR_sizer.Add(self.ScalingLowRes, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 10)
-        
         SR_fgs = wx.FlexGridSizer(rows=2, cols=5, vgap=10, hgap=10)
-        SR_fgs.AddMany([ScalingTxt, self.ScalingChoice, blank2, blank3, blank4, 
-                        ScalingLowResTxt, self.ScalingLowRes, blank5, ScalingHighResTxt, self.ScalingHighRes])
+        SR_fgs.AddMany([ScalingTxt, self.ScalingChoice, (60, -1), (60, -1), (60, -1),
+                        ScalingLowResTxt, self.ScalingLowRes, (60, -1), ScalingHighResTxt, self.ScalingHighRes])
         self.SR.AddSpacer(5)
         self.SR.Add(SR_fgs, 0, wx.EXPAND, border=5)
 

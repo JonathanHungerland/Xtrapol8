@@ -426,7 +426,6 @@ class TabRefinement(ScrolledPanel):
         self.FinalSizer =  wx.BoxSizer(wx.VERTICAL)
 
         self.FinalSizer.Add(ref_sizer, 0, wx.ALIGN_CENTER | wx.ALL, border=15)
-        self.FinalSizer.Add(self.RunRef, 0, wx.GROW | wx.ALL, 5)
         self.FinalSizer.Add(self.PRReal, 0, wx.GROW | wx.ALL, 5)
         self.FinalSizer.Add(self.FinalPhenixRealSizer, 0, wx.GROW | wx.ALL, 5)
         self.FinalSizer.Add(self.FinalCootSizer, 0, wx.GROW | wx.ALL, 5)
@@ -536,4 +535,3 @@ class TabRefinement(ScrolledPanel):
             
 
             
-

@@ -30,6 +30,17 @@ class GuiSourceRegressionTests(unittest.TestCase):
                 [],
                 f"Deprecated API pattern {pattern!r} reappeared in {offenders}",
             )
+        deprecated_regexes = [
+            r"\bnp\.float\b(?!\d)",
+            r"\bnp\.bool\b(?!_)",
+        ]
+        for pattern in deprecated_regexes:
+            offenders = [path.name for path in self.python_files if re.search(pattern, path.read_text())]
+            self.assertEqual(
+                offenders,
+                [],
+                f"Deprecated API regex {pattern!r} reappeared in {offenders}",
+            )
 
     def test_wx_pubsub_import_is_confined_to_compat_layer(self):
         """Covers direct deprecated wx pubsub imports so they stay isolated in the fallback shim."""

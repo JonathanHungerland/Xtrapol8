@@ -11,5 +11,10 @@ import warnings
 try:
     from pubsub import pub
 except ImportError:
-    with warnings.catch_warnings(record=True):
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"wx\.lib\.pubsub has been deprecated, please migrate your "
+                    r"code to use pypubsub, available on PyPI\.",
+        )
         from wx.lib.pubsub import pub

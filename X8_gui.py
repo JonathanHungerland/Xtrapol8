@@ -169,7 +169,7 @@ class X8Thread(Thread):
         self.Nlog = Nlog
         Thread.__init__(self)
         self.daemon = True
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
     #----------------------------------------------------------------------
     def run(self):
@@ -196,10 +196,10 @@ class X8Thread(Thread):
 
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
     def stopped(self):
-        return self._stop.is_set()
+        return self._stop_event.is_set()
 
 ########################################################################
 ########################################################################

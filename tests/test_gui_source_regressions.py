@@ -74,8 +74,10 @@ class GuiSourceRegressionTests(unittest.TestCase):
     def test_x8_thread_uses_non_deprecated_event_api(self):
         """Covers thread stop checks so Python 3.10 does not warn on deprecated Event.isSet()."""
         text = (REPO_ROOT / "X8_gui.py").read_text()
-        self.assertIn("return self._stop.is_set()", text)
+        self.assertIn("self._stop_event = threading.Event()", text)
+        self.assertIn("return self._stop_event.is_set()", text)
         self.assertNotIn("isSet()", text)
+        self.assertNotIn("self._stop = threading.Event()", text)
 
     def test_panel_extrapolation_uses_window_newcontrolid(self):
         """Covers the Phoenix-safe control ID creation path in the extrapolation panel."""

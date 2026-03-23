@@ -17,6 +17,7 @@ class GuiSourceRegressionTests(unittest.TestCase):
             "sys.maxint",
             "InsertStringItem(",
             "SetStringItem(",
+            "wx.EVT_MENU(",
             "unicode)",
             "wx.PyValidator",
             "string.letters",
@@ -70,6 +71,13 @@ class GuiSourceRegressionTests(unittest.TestCase):
         """Covers run validation so the GUI cannot launch with input.triggered_mtz left as None."""
         text = (REPO_ROOT / "X8_gui.py").read_text()
         self.assertIn("if len(tabIO.files[\"Triggered mtz\"]) == 0:\n            message_err += \"\\n- at least one triggered mtz (mtz or cif)\"\n            err = 1", text)
+
+    def test_add_results_tab_uses_successful_append_to_define_run_index(self):
+        """Covers results-tab bookkeeping so a prior failed construction cannot desynchronize Runs and ResultsBooks."""
+        text = (REPO_ROOT / "X8_gui.py").read_text()
+        self.assertIn("results_book = NoteBookResults(self.notebook, self.input_phil)", text)
+        self.assertIn("self.notebook.Runs = len(self.notebook.ResultsBooks) - 1", text)
+        self.assertIn("self.notebook.AddPage(results_book, \"Run #%i\" % (self.notebook.Runs + 1))", text)
 
     def test_x8_thread_decodes_subprocess_output_as_text(self):
         """Covers GUI log updates so worker output reaches pubsub as text instead of raw bytes."""

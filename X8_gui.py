@@ -407,9 +407,10 @@ class MainFrame(wx.Frame):
             self.OnStopRun()
 
     def AddResultsTab(self):
-        self.notebook.Runs += 1
-        self.notebook.ResultsBooks.append(NoteBookResults(self.notebook, self.input_phil))
-        self.notebook.AddPage(self.notebook.ResultsBooks[self.notebook.Runs], "Run #%i" % (self.notebook.Runs + 1))
+        results_book = NoteBookResults(self.notebook, self.input_phil)
+        self.notebook.ResultsBooks.append(results_book)
+        self.notebook.Runs = len(self.notebook.ResultsBooks) - 1
+        self.notebook.AddPage(results_book, "Run #%i" % (self.notebook.Runs + 1))
         
 
     def OnrunX8(self,):

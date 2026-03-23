@@ -132,8 +132,8 @@ class TabIO(wx.Panel):
                 menu.Check(2, True)
             else:
                 menu.Check(1, True)
-            wx.EVT_MENU(menu, 1, self.MenuSelectionCb)
-            wx.EVT_MENU(menu, 2, self.MenuSelectionCb)
+            menu.Bind(wx.EVT_MENU, self.MenuSelectionCb, id=1)
+            menu.Bind(wx.EVT_MENU, self.MenuSelectionCb, id=2)
             self.PopupMenu(menu, evt.GetPoint())
             menu.Destroy()
 
@@ -152,10 +152,10 @@ class TabIO(wx.Panel):
                 menu.Check(3, True)
             else:
                 menu.Check(4, True)
-            wx.EVT_MENU(menu, 1, self.MenuSelectionCb)
-            wx.EVT_MENU(menu, 2, self.MenuSelectionCb)
-            wx.EVT_MENU(menu, 3, self.MenuSelectionCb)
-            wx.EVT_MENU(menu, 4, self.MenuSelectionCb)
+            menu.Bind(wx.EVT_MENU, self.MenuSelectionCb, id=1)
+            menu.Bind(wx.EVT_MENU, self.MenuSelectionCb, id=2)
+            menu.Bind(wx.EVT_MENU, self.MenuSelectionCb, id=3)
+            menu.Bind(wx.EVT_MENU, self.MenuSelectionCb, id=4)
             self.PopupMenu(menu, evt.GetPoint())
             menu.Destroy()
 
@@ -300,7 +300,6 @@ class TabIO(wx.Panel):
             self.files[file_type].remove(fn)
             self.list.DeleteItem(self.index)
             evt.Skip()
-
 
 
 

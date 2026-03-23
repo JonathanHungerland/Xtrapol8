@@ -66,6 +66,11 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "X8_gui.py").read_text()
         self.assertIn("if phil_file is None:\n            return", text)
 
+    def test_gui_validation_rejects_missing_triggered_mtz(self):
+        """Covers run validation so the GUI cannot launch with input.triggered_mtz left as None."""
+        text = (REPO_ROOT / "X8_gui.py").read_text()
+        self.assertIn("if len(tabIO.files[\"Triggered mtz\"]) == 0:\n            message_err += \"\\n- at least one triggered mtz (mtz or cif)\"\n            err = 1", text)
+
     def test_x8_thread_decodes_subprocess_output_as_text(self):
         """Covers GUI log updates so worker output reaches pubsub as text instead of raw bytes."""
         text = (REPO_ROOT / "X8_gui.py").read_text()

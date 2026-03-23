@@ -499,6 +499,7 @@ class MainFrame(wx.Frame):
 
         if len(tabIO.files["Triggered mtz"]) == 0:
             message_err += "\n- at least one triggered mtz (mtz or cif)"
+            err = 1
 
         if len(tabIO.outdir_sizer.TextCtrl.GetValue()) == 0:
             tabIO.outdir_sizer.TextCtrl.SetValue(os.getcwd()+'/Xtrapol8')

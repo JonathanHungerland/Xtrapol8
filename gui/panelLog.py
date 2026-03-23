@@ -32,7 +32,7 @@ import wx
 import os, re
 from wx.lib.scrolledpanel import ScrolledPanel
 from wxtbx import metallicbutton
-from wx.lib.pubsub import pub
+from pubsub_compat import pub
 import pickle
 import glob
 import math
@@ -1283,7 +1283,6 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
 
 
 

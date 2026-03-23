@@ -29,7 +29,7 @@ from threading import Thread
 import sys
 import wx
 import subprocess
-from wx.lib.pubsub import pub
+from pubsub_compat import pub
 from gui import panelIO, panelExtrapolation, panelRefinement, panelLog
 from gui.panelLog import TabLog, TabMainImg, TabOccResults
 

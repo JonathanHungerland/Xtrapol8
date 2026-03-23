@@ -100,7 +100,6 @@ from iotbx import pdb
 from mmtbx.scaling.matthews import p_vm_calculator
 from iotbx import ccp4_map
 from scipy.stats import pearsonr
-from wx.lib.pubsub import pub
 
 #sys.path.append("/Users/edezitter/Scripts/Fextrapolation")
 

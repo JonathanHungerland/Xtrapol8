@@ -22,7 +22,6 @@ see https://github.com/ElkeDeZitter/Xtrapol8/blob/main/LICENSE
 """
 
 import wx
-from wx.lib.pubsub import pub
 
 from .utils import CharValidator
 from wx.lib.scrolledpanel import ScrolledPanel

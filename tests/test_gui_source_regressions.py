@@ -14,6 +14,7 @@ class GuiSourceRegressionTests(unittest.TestCase):
     def test_deprecated_gui_api_patterns_are_absent(self):
         """Covers the Python 3/Phoenix API replacements already applied in the GUI code."""
         deprecated_patterns = [
+            "sys.maxint",
             "wx.PyValidator",
             "string.letters",
             "wx.NewId(",
@@ -56,6 +57,11 @@ class GuiSourceRegressionTests(unittest.TestCase):
                 3,
                 "Phoenix ToolBar.AddTool calls must pass toolId, label, and bitmap",
             )
+
+    def test_open_phil_returns_early_when_no_path_was_selected(self):
+        """Covers canceled phil selection so the GUI does not try to open a None path."""
+        text = (REPO_ROOT / "X8_gui.py").read_text()
+        self.assertIn("if phil_file is None:\n            return", text)
 
     def test_panel_extrapolation_uses_window_newcontrolid(self):
         """Covers the Phoenix-safe control ID creation path in the extrapolation panel."""

@@ -551,6 +551,8 @@ class MainFrame(wx.Frame):
                    "All files (*.*)|*.*"
         if phil_file is None:
             phil_file = self.onBrowse(wildcard=wildcard)
+        if phil_file is None:
+            return
         user_params = self.extract_debug_phil(open(phil_file).read())
         self.SetWidgets(user_params)
 
@@ -577,23 +579,23 @@ class MainFrame(wx.Frame):
 
         # Fill listCtrl with input files
         if user_params.input.reference_mtz is not None:
-            index = tabIO.list.InsertStringItem(sys.maxint, user_params.input.reference_mtz)
+            index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), user_params.input.reference_mtz)
             tabIO.list.SetStringItem(index, 1, "Reference mtz")
             tabIO.files["Reference mtz"].append(user_params.input.reference_mtz)
             #tabIO.extract_dmin_dmax(user_params.input.reference_mtz)
         if user_params.input.triggered_mtz is not None:
-            index = tabIO.list.InsertStringItem(sys.maxint, user_params.input.triggered_mtz)
+            index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), user_params.input.triggered_mtz)
             tabIO.list.SetStringItem(index, 1, "Triggered mtz")
             tabIO.files["Triggered mtz"].append(user_params.input.triggered_mtz)
             #tabIO.extract_dmin_dmax(user_params.input.triggered_mtz)
         if user_params.input.reference_pdb is not None:
-            index = tabIO.list.InsertStringItem(sys.maxint, user_params.input.reference_pdb)
+            index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), user_params.input.reference_pdb)
             tabIO.list.SetStringItem(index, 1, "Reference model")
             tabIO.files["Reference model"].append(user_params.input.reference_pdb)
 
         if user_params.input.additional_files is not None:
             for cif in user_params.input.additional_files:
-                index = tabIO.list.InsertStringItem(sys.maxint, cif)
+                index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), cif)
                 tabIO.list.SetStringItem(index, 1, "Restraints")
                 tabIO.files["Restraints"].append(cif)
         # Resolution

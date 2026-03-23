@@ -247,7 +247,7 @@ class TabIO(wx.Panel):
                 print("Sorry: this file type is not (yet?) accepted")
                 return
 
-            index = self.list.InsertStringItem(sys.maxint, path)
+            index = self.list.InsertStringItem(self.list.GetItemCount(), path)
             if ext == '.pdb':
                 self.list.SetStringItem(index, 1, 'Reference model')
                 self.files['Reference model'].append(path)
@@ -309,7 +309,6 @@ class TabIO(wx.Panel):
             self.files[file_type].remove(fn)
             self.list.DeleteItem(self.index)
             evt.Skip()
-
 
 
 

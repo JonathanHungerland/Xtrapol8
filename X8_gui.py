@@ -579,24 +579,24 @@ class MainFrame(wx.Frame):
 
         # Fill listCtrl with input files
         if user_params.input.reference_mtz is not None:
-            index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), user_params.input.reference_mtz)
-            tabIO.list.SetStringItem(index, 1, "Reference mtz")
+            index = tabIO.list.InsertItem(tabIO.list.GetItemCount(), user_params.input.reference_mtz)
+            tabIO.list.SetItem(index, 1, "Reference mtz")
             tabIO.files["Reference mtz"].append(user_params.input.reference_mtz)
             #tabIO.extract_dmin_dmax(user_params.input.reference_mtz)
         if user_params.input.triggered_mtz is not None:
-            index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), user_params.input.triggered_mtz)
-            tabIO.list.SetStringItem(index, 1, "Triggered mtz")
+            index = tabIO.list.InsertItem(tabIO.list.GetItemCount(), user_params.input.triggered_mtz)
+            tabIO.list.SetItem(index, 1, "Triggered mtz")
             tabIO.files["Triggered mtz"].append(user_params.input.triggered_mtz)
             #tabIO.extract_dmin_dmax(user_params.input.triggered_mtz)
         if user_params.input.reference_pdb is not None:
-            index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), user_params.input.reference_pdb)
-            tabIO.list.SetStringItem(index, 1, "Reference model")
+            index = tabIO.list.InsertItem(tabIO.list.GetItemCount(), user_params.input.reference_pdb)
+            tabIO.list.SetItem(index, 1, "Reference model")
             tabIO.files["Reference model"].append(user_params.input.reference_pdb)
 
         if user_params.input.additional_files is not None:
             for cif in user_params.input.additional_files:
-                index = tabIO.list.InsertStringItem(tabIO.list.GetItemCount(), cif)
-                tabIO.list.SetStringItem(index, 1, "Restraints")
+                index = tabIO.list.InsertItem(tabIO.list.GetItemCount(), cif)
+                tabIO.list.SetItem(index, 1, "Restraints")
                 tabIO.files["Restraints"].append(cif)
         # Resolution
         if user_params.input.high_resolution is not None:

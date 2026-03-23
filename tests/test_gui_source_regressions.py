@@ -15,6 +15,8 @@ class GuiSourceRegressionTests(unittest.TestCase):
         """Covers the Python 3/Phoenix API replacements already applied in the GUI code."""
         deprecated_patterns = [
             "sys.maxint",
+            "InsertStringItem(",
+            "SetStringItem(",
             "wx.PyValidator",
             "string.letters",
             "wx.NewId(",

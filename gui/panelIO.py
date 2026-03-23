@@ -182,17 +182,8 @@ class TabIO(wx.Panel):
                 self.files[key].remove(fn)
             except ValueError:
                 pass
-        self.list.SetStringItem(self.index, 1, data_type)
+        self.list.SetItem(self.index, 1, data_type)
         
-        #if ID == 1: #reference mtz selected
-            #self.files["Triggered mtz"].remove(fn)
-            #self.files["Reference mtz"].append(fn)
-            #self.list.SetStringItem(self.index, 1, "Reference mtz")
-        #if ID == 2: #triggered mtz selected
-            #self.files["Triggered mtz"].append(fn)
-            #self.files["Reference mtz"].remove(fn)
-            #self.list.SetStringItem(self.index, 1, "Triggered mtz")
-
     def onBrowseDir(self, evt, text_static, multi, key):
         """
         Directory selection
@@ -247,37 +238,37 @@ class TabIO(wx.Panel):
                 print("Sorry: this file type is not (yet?) accepted")
                 return
 
-            index = self.list.InsertStringItem(self.list.GetItemCount(), path)
+            index = self.list.InsertItem(self.list.GetItemCount(), path)
             if ext == '.pdb':
-                self.list.SetStringItem(index, 1, 'Reference model')
+                self.list.SetItem(index, 1, 'Reference model')
                 self.files['Reference model'].append(path)
             elif ext == '.cif':
                 try:
                     cif = any_file(path, force_type="pdb")
-                    self.list.SetStringItem(index, 1, 'Reference model')
+                    self.list.SetItem(index, 1, 'Reference model')
                     self.files['Reference model'].append(path)
                 except:
                     try:
                         cif = any_file(path, force_type="hkl")
                         if self.refMTZ:
-                            self.list.SetStringItem(index, 1, "Triggered mtz")
+                            self.list.SetItem(index, 1, "Triggered mtz")
                             self.files["Triggered mtz"].append(path)
                         else:
-                            self.list.SetStringItem(index, 1, 'Reference mtz')
+                            self.list.SetItem(index, 1, 'Reference mtz')
                             self.refMTZ = True
                             self.files["Reference mtz"].append(path)
                     except:
-                        self.list.SetStringItem(index, 1, 'Restraints')
+                        self.list.SetItem(index, 1, 'Restraints')
                         self.files["Restraints"].append(path)
             elif ext == '.edits' or ext == '.edit':
-                self.list.SetStringItem(index, 1, "Restraints")
+                self.list.SetItem(index, 1, "Restraints")
                 self.files["Restraints"].append(path)
             else:
                 if self.refMTZ:
-                    self.list.SetStringItem(index, 1, 'Triggered mtz')
+                    self.list.SetItem(index, 1, 'Triggered mtz')
                     self.files["Triggered mtz"].append(path)
                 else:
-                    self.list.SetStringItem(index, 1, 'Reference mtz')
+                    self.list.SetItem(index, 1, 'Reference mtz')
                     self.refMTZ = True
                     self.files["Reference mtz"].append(path)
                 self.extract_dmin_dmax(path)
@@ -309,8 +300,6 @@ class TabIO(wx.Panel):
             self.files[file_type].remove(fn)
             self.list.DeleteItem(self.index)
             evt.Skip()
-
-
 
 
 

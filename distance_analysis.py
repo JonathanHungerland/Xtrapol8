@@ -68,6 +68,18 @@ from Fextr_utils import check_file_existance
 
 colorlib=['purple','indigo','rebeccapurple', 'midnightblue', 'darkblue', 'mediumblue', 'blue', 'royalblue', 'dodgerblue', 'cornflowerblue', 'deepskyblue', 'lightskyblue', 'cadetblue','darkcyan', 'darkturquoise', 'mediumturquoise', 'turquoise', 'aqua', 'mediumaquamarine', 'aquamarine', 'mediumspringgreen', 'springgreen', 'green', 'lime', 'lawngreen', 'chartreuse', 'greenyellow', 'yellow', 'gold', 'goldenrod', 'orange', 'darkorange', 'chocolate', 'darksalmon', 'orangered', 'red', 'firebrick', 'maroon', 'darkred', 'black']
 
+
+def _mode_value(values):
+    """
+    Return the modal value from scipy.stats.mode() across SciPy result shapes.
+    """
+    result = scipy.stats.mode(values)
+    if hasattr(result, "mode"):
+        mode = result.mode
+    else:
+        mode = result[0]
+    return np.asarray(mode).reshape(-1)[0]
+
 def sigmoid_fit(x, L, k, x0):
     """
     logistic function = sigmoidal
@@ -807,7 +819,7 @@ class Distance_analysis(object):
             peaks = self.find_peaks(counts,bins)
             if len(peaks)>1:
                 peaks = np.average(peaks)
-            mode = scipy.stats.mode(np.round(possible_b,2))[0][0]
+            mode = _mode_value(np.round(possible_b,2))
             
             #if sigmoidal fitting:
             #calculate x0 statistics
@@ -817,7 +829,7 @@ class Distance_analysis(object):
             peaks_x0 = self.find_peaks(counts_x0,bins_x0)
             if len(peaks_x0)>1:
                 peaks_x0 = np.average(peaks_x0)
-            mode_x0 = scipy.stats.mode(np.round(possible_x0,2))[0][0]
+            mode_x0 = _mode_value(np.round(possible_x0,2))
             
             #set waring and error to ignore because possibility of division by zero
             np.seterr(divide='ignore', invalid='ignore')

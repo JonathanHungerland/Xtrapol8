@@ -156,6 +156,11 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "map_explorer.py").read_text()
         self.assertIn("all_atoms = np.array(all_atoms, dtype=object)", text)
 
+    def test_gui_does_not_treat_optional_fextr_artifacts_as_missing_file_errors(self):
+        """Covers optional result polling so mode-dependent qFextr plots do not emit misleading missing-file messages."""
+        text = (REPO_ROOT / "X8_gui.py").read_text()
+        self.assertNotIn('print("%s does not exists" %filepath)', text)
+
 
 if __name__ == "__main__":
     unittest.main()

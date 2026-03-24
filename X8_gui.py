@@ -360,9 +360,6 @@ class MainFrame(wx.Frame):
                             tab.addFextrPlot(Fextr, filepath)
                         else:
                             tab.addFextrImg(filepath)
-                    else:
-                        #return
-                        print("%s does not exists" %filepath)
 
     def OnPageClose(self, evt):
         # will check that the run is not running - will clean its thread list accordingly
@@ -472,8 +469,6 @@ class MainFrame(wx.Frame):
                         tab.addFextrPlot(Fextr, filepath)
                     else:
                         tab.addFextrImg(filepath)
-                else:
-                    print("%s does not exists" %filepath)
             if self.inputs[run].output.generate_fofo_only:
                 self.notebook.ResultsBooks[run].tabLog.CreateCoot()
             else:

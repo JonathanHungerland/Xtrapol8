@@ -630,10 +630,10 @@ class TabMainImg(ScrolledPanel):
         H = img.GetHeight()
         if W > H:
             NewW = self.photoMaxSize
-            NewH = self.photoMaxSize * H / W
+            NewH = int(round(self.photoMaxSize * H / W))
         else:
             NewH = self.photoMaxSize
-            NewW = self.photoMaxSize * W / H
+            NewW = int(round(self.photoMaxSize * W / H))
         img = img.Scale(NewW, NewH)
 
         self.newimg = wx.StaticBitmap(self, wx.ID_ANY,
@@ -804,10 +804,10 @@ class TabMainImg(ScrolledPanel):
         H = img.GetHeight()
         if W > H:
             NewW = self.photoMaxSize
-            NewH = self.photoMaxSize * H / W
+            NewH = int(round(self.photoMaxSize * H / W))
         else:
             NewH = self.photoMaxSize
-            NewW = self.photoMaxSize * W / H
+            NewW = int(round(self.photoMaxSize * W / H))
         img = img.Scale(NewW, NewH)
 
         self.newimg = wx.StaticBitmap(self, wx.ID_ANY, wx.BitmapFromImage(img))
@@ -1256,10 +1256,10 @@ class TabOccResults(ScrolledPanel):
             H = img.GetHeight()
             if W > H:
                 NewW = self.photoMaxSize
-                NewH = self.photoMaxSize * H / W
+                NewH = int(round(self.photoMaxSize * H / W))
             else:
                 NewH = self.photoMaxSize
-                NewW = self.photoMaxSize * W / H
+                NewW = int(round(self.photoMaxSize * W / H))
             img = img.Scale(NewW, NewH)
 
             self.newimg = wx.StaticBitmap(self, wx.ID_ANY,
@@ -1290,7 +1290,6 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
 
 
 

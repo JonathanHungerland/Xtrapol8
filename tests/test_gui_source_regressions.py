@@ -138,6 +138,12 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("if not isinstance(line, str):", text)
         self.assertIn("if hasattr(line, \"decode\"):", text)
 
+    def test_panel_log_scales_images_with_integer_dimensions(self):
+        """Covers Phoenix image scaling so wx.Image.Scale never receives float dimensions."""
+        text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn("NewH = int(round(self.photoMaxSize * H / W))", text)
+        self.assertIn("NewW = int(round(self.photoMaxSize * W / H))", text)
+
     def test_map_explorer_uses_object_array_for_ragged_blob_rows(self):
         """Covers map-explorer blob collection so variable-length voxel-index payloads do not crash NumPy conversion."""
         text = (REPO_ROOT / "map_explorer.py").read_text()

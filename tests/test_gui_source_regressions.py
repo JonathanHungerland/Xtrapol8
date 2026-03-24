@@ -18,6 +18,7 @@ class GuiSourceRegressionTests(unittest.TestCase):
             "InsertStringItem(",
             "SetStringItem(",
             "wx.EVT_MENU(",
+            "BitmapFromImage(",
             "unicode)",
             "wx.PyValidator",
             "string.letters",
@@ -143,6 +144,12 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
         self.assertIn("NewH = int(round(self.photoMaxSize * H / W))", text)
         self.assertIn("NewW = int(round(self.photoMaxSize * W / H))", text)
+
+    def test_panel_log_reads_ragged_pickles_without_plain_numpy_coercion(self):
+        """Covers GUI plotting so ragged pickle payloads do not crash during NumPy conversion."""
+        text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn("stats = np.array(pickle.load(stats_file), dtype=object)", text)
+        self.assertIn("_, FoFo_type, _, bin_res_cent_lst, _, _, fdif_data_lst, fdif_sigmas_lst = pickle.load(stats_file)", text)
 
     def test_map_explorer_uses_object_array_for_ragged_blob_rows(self):
         """Covers map-explorer blob collection so variable-length voxel-index payloads do not crash NumPy conversion."""

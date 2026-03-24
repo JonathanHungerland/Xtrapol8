@@ -416,7 +416,7 @@ class TabMainImg(ScrolledPanel):
         with open(pickle_file, 'rb') as stats_file:
             while True:
                 try:
-                    stats = np.array(pickle.load(stats_file))
+                    stats = np.array(pickle.load(stats_file), dtype=object)
                     # stats = np.array(tuple(stats), dtype='f8, S32, i4, i4, i4')
                     try:
                         alldata = np.vstack([alldata, stats[np.newaxis, ...]])
@@ -637,7 +637,7 @@ class TabMainImg(ScrolledPanel):
         img = img.Scale(NewW, NewH)
 
         self.newimg = wx.StaticBitmap(self, wx.ID_ANY,
-                                      wx.BitmapFromImage(img))
+                                      wx.Bitmap(img))
         self.mainSizer.Add(self.newimg, proportion=0,  flag=wx.ALIGN_CENTER_HORIZONTAL)
         self.mainSizer.Add(wx.StaticLine(self, wx.ID_ANY))
         self.mainSizer.AddSpacer(60)
@@ -692,7 +692,7 @@ class TabMainImg(ScrolledPanel):
         with open(pickle_file, 'rb') as stats_file:
             while True:
                 try:
-                    stats = np.array(pickle.load(stats_file))
+                    stats = np.array(pickle.load(stats_file), dtype=object)
                     # stats = np.array(tuple(stats), dtype='f8, S32, i4, i4, i4')
                     try:
                         alldata = np.vstack([alldata, stats[np.newaxis, ...]])
@@ -762,7 +762,7 @@ class TabMainImg(ScrolledPanel):
             return
 
         with open(pickle_file, 'rb') as stats_file:
-            _, FoFo_type, _, bin_res_cent_lst, _, _, fdif_data_lst, fdif_sigmas_lst = np.array(pickle.load(stats_file))
+            _, FoFo_type, _, bin_res_cent_lst, _, _, fdif_data_lst, fdif_sigmas_lst = pickle.load(stats_file)
 
         mn = 0
         mx = 0
@@ -810,7 +810,7 @@ class TabMainImg(ScrolledPanel):
             NewW = int(round(self.photoMaxSize * W / H))
         img = img.Scale(NewW, NewH)
 
-        self.newimg = wx.StaticBitmap(self, wx.ID_ANY, wx.BitmapFromImage(img))
+        self.newimg = wx.StaticBitmap(self, wx.ID_ANY, wx.Bitmap(img))
         self.ImgSizer.Add(self.newimg, proportion=0,  flag=wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, border=20)
         self.FitInside()
 
@@ -1098,7 +1098,7 @@ class TabOccResults(ScrolledPanel):
         with open(pickle_file,'rb') as stats_file:
             while True:
                 try:
-                    stats = np.array(pickle.load(stats_file))
+                    stats = np.array(pickle.load(stats_file), dtype=object)
                     try:
                         alldata = np.vstack([alldata,stats[np.newaxis,...]])
                     except NameError:
@@ -1263,7 +1263,7 @@ class TabOccResults(ScrolledPanel):
             img = img.Scale(NewW, NewH)
 
             self.newimg = wx.StaticBitmap(self, wx.ID_ANY,
-                                          wx.BitmapFromImage(img))
+                                          wx.Bitmap(img))
             self.ImgSizer.Add(self.newimg, proportion=0, flag=wx.ALIGN_CENTER_HORIZONTAL)
             self.ImgSizer.Layout()
             self.mainSizer.Layout()
@@ -1290,7 +1290,5 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
-
 
 

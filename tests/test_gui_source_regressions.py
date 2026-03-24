@@ -173,6 +173,14 @@ class GuiSourceRegressionTests(unittest.TestCase):
         text = (REPO_ROOT / "X8_gui.py").read_text()
         self.assertNotIn('print("%s does not exists" %filepath)', text)
 
+    def test_phenix_launchers_do_not_hardcode_four_workers(self):
+        """Covers refinement parallelism so Phenix worker counts are not capped at four in source."""
+        phenix_refinements = (REPO_ROOT / "phenix_refinements.py").read_text()
+        refiner = (REPO_ROOT / "refiner.py").read_text()
+        self.assertNotIn("refinement.main.nproc=4", phenix_refinements)
+        self.assertNotIn(" nproc=4 ", phenix_refinements)
+        self.assertNotIn("refinement.main.nproc=4", refiner)
+
 
 if __name__ == "__main__":
     unittest.main()

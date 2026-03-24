@@ -78,6 +78,7 @@ from Fextr_utils import *
 from distance_analysis import Distance_analysis
 from pymol_visualization import Pymol_movie
 from ddm import Difference_distance_analysis
+from parallel_utils import resolve_nproc
 import version
 
 from master import master_phil
@@ -298,8 +299,9 @@ class Refiner(object):
             #data_manager.fmodel.xray_data.r_free_flags.disable_suitability_test=True
             #Disable_suitability_test cannot be done. It keeps on giving an error message about the label and value. All combination have been tested, it seems that this does not work
 
+        nproc = resolve_nproc(0)
 
-        reciprocal = os.system("phenix.refine --overwrite %s %s %s  %s output.prefix=%s refinement.output.write_model_cif_file=False %s refinement.main.nproc=4 write_maps=true refinement.main.scattering_table=%s " %(self.reciprocal_phil, self.mtz_file, self.additional, self.pdb_in, outprefix, r_free_flag_parameters, self.scattering_table)) # wxc_scale=0.021 #target_weights.optimize_xyz_weight=True
+        reciprocal = os.system("phenix.refine --overwrite %s %s %s  %s output.prefix=%s refinement.output.write_model_cif_file=False %s refinement.main.nproc=%d write_maps=true refinement.main.scattering_table=%s " %(self.reciprocal_phil, self.mtz_file, self.additional, self.pdb_in, outprefix, r_free_flag_parameters, nproc, self.scattering_table)) # wxc_scale=0.021 #target_weights.optimize_xyz_weight=True
          
         #Find output files
         if reciprocal == 0: #os.system has correctly finished, then search for the last refined structure
@@ -516,8 +518,9 @@ eof' % (mtz_out, ccp4_map_name))
 
         # print("phenix.real_space_refine %s %s %s %s %s %s label='%s'" % (self.real_phil,
         # mtz_in, self.additional, pdb_in, output_prefix, model_format, column_labels))
-        real = os.system("phenix.real_space_refine %s %s %s %s %s %s label='%s' scattering_table=%s" %(
-            self.real_phil, mtz_in, self.additional, pdb_in, output_prefix, model_format, column_labels, self.scattering_table))
+        nproc = resolve_nproc(0)
+        real = os.system("phenix.real_space_refine %s %s %s %s %s %s label='%s' scattering_table=%s nproc=%d" %(
+            self.real_phil, mtz_in, self.additional, pdb_in, output_prefix, model_format, column_labels, self.scattering_table, nproc))
 
         #Find output file
         if real == 0 : #os.system has correctly finished. Then search for the last refined structure
@@ -568,8 +571,9 @@ eof' % (mtz_out, ccp4_map_name))
             # outpdb        = "%s_independent_real_space_refined.pdb"%(ccp4_name)
 
         #launch phenix.real_space_refine
-        real = os.system("phenix.real_space_refine %s %s %s %s %s %s resolution=%.2f scattering_table=%s" %(
-            self.real_phil, ccp4_in, self.additional, pdb_in, output_prefix, model_format, resolution, self.scattering_table))
+        nproc = resolve_nproc(0)
+        real = os.system("phenix.real_space_refine %s %s %s %s %s %s resolution=%.2f scattering_table=%s nproc=%d" %(
+            self.real_phil, ccp4_in, self.additional, pdb_in, output_prefix, model_format, resolution, self.scattering_table, nproc))
 
         #Find output file
         if real == 0 : #os.system has correctly finished. Then search for the last refined structure

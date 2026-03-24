@@ -1271,6 +1271,7 @@ class Fextrapolate(object):
                  F_column_labels    = F_column_labels,
                  strategy           = phenix_keywords.refine.strategy,
                  rec_cycles         = phenix_keywords.main.cycles,
+                 nproc              = phenix_keywords.main.nproc,
                  wxc_scale          = phenix_keywords.target_weights.wxc_scale,
                  wxu_scale          = phenix_keywords.target_weights.wxu_scale,
                  solvent            = phenix_keywords.main.ordered_solvent,
@@ -1317,6 +1318,7 @@ class Fextrapolate(object):
         if real_space_refiment == "phenix.real_space_refine":
             real = phenix_refinements.Phenix_real_space_refinement(
                 real_cycles              = phenix_keywords.real_space_refine.cycles,
+                nproc                    = phenix_keywords.real_space_refine.nproc,
                 additional               = additional,
                 scattering_table         = scattering_table,
                 additional_real_keywords = phenix_keywords.additional_real_space_keywords,

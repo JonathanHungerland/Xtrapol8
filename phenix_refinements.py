@@ -29,6 +29,7 @@ from mmtbx.scaling.matthews import p_vm_calculator
 from libtbx import adopt_init_args
 from cctbx import miller
 from Fextr_utils import get_name, get_phenix_version
+from parallel_utils import resolve_nproc
 import subprocess
 from iotbx.file_reader import any_file
 
@@ -47,6 +48,7 @@ class Phenix_reciprocal_space_refinement(object):
                  sim_annealing_pars             = {},
                  map_sharpening                 = False,
                  scattering_table               = "n_gaussian",
+                 nproc                          = 0,
                  weight_sel_crit                = {},
                  additional_reciprocal_keywords = [],
                  log                            = sys.stdout):
@@ -59,8 +61,9 @@ class Phenix_reciprocal_space_refinement(object):
             self.params = self.generate_map_params_bsharpening()
         else:
             self.params = ""
-            
+        
         self.mtz_name = get_name(self.mtz_in)
+        self.nproc = resolve_nproc(self.nproc)
         
         #get phenix subversion, important since syntax can differ between versions
         phenix_version = get_phenix_version()
@@ -120,7 +123,7 @@ class Phenix_reciprocal_space_refinement(object):
         reciprocal = os.system("phenix.refine --overwrite %s %s  %s output.prefix=%s strategy=%s "
                        "main.number_of_macro_cycles=%d refinement.output.write_model_cif_file=False "
                        "refinement.main.scattering_table=%s "
-                               "%s refinement.main.nproc=4 wxc_scale=%f wxu_scale=%f ordered_solvent=%s write_maps=true %s %s %s %s" %(self.mtz_in, self.additional, self.pdb_in, outprefix, self.strategy, self.rec_cycles, self.scattering_table, r_free_flag_parameters, self.wxc_scale, self.wxu_scale, self.solvent, self.params, weight_selection_criteria, sim_annealing, additional_keywords_line)) # wxc_scale=0.021 #target_weights.optimize_xyz_weight=True
+                               "%s refinement.main.nproc=%d wxc_scale=%f wxu_scale=%f ordered_solvent=%s write_maps=true %s %s %s %s" %(self.mtz_in, self.additional, self.pdb_in, outprefix, self.strategy, self.rec_cycles, self.scattering_table, r_free_flag_parameters, self.nproc, self.wxc_scale, self.wxu_scale, self.solvent, self.params, weight_selection_criteria, sim_annealing, additional_keywords_line)) # wxc_scale=0.021 #target_weights.optimize_xyz_weight=True
 
         #Find output files, automatically
         if reciprocal == 0: #os.system has correctly finished, then search for the last refined structure
@@ -323,12 +326,14 @@ eof' % (mtz_out, ccp4_map_name))
 class Phenix_real_space_refinement(object):
     def __init__(self,
                  real_cycles                    = 5,
+                 nproc                          = 0,
                  additional                     = '',
                  additional_real_keywords       = [],
                  scattering_table               = "n_gaussian",
                  log                            = sys.stdout):
         
         adopt_init_args(self, locals())
+        self.nproc = resolve_nproc(self.nproc)
         
         #get phenix subversion, important since syntax can differ between versions
         phenix_version = get_phenix_version()
@@ -428,7 +433,7 @@ class Phenix_real_space_refinement(object):
                 additional_keywords_line+= "%s " %(keyword)
         
         real = os.system("phenix.real_space_refine %s %s %s "
-                        "geometry_restraints.edits.excessive_bond_distance_limit=1000 refinement.run=minimization_global+adp scattering_table=%s c_beta_restraints=False %s refinement.macro_cycles=%d refinement.simulated_annealing=every_macro_cycle nproc=4 %s label='%s' %s %s ignore_symmetry_conflicts=True %s" %(mtz_in, self.additional, pdb_in, self.scattering_table, output_prefix, self.real_cycles, model_format, column_labels, rotamer_restraints, ramachandran_restraints, additional_keywords_line))
+                        "geometry_restraints.edits.excessive_bond_distance_limit=1000 refinement.run=minimization_global+adp scattering_table=%s c_beta_restraints=False %s refinement.macro_cycles=%d refinement.simulated_annealing=every_macro_cycle nproc=%d %s label='%s' %s %s ignore_symmetry_conflicts=True %s" %(mtz_in, self.additional, pdb_in, self.scattering_table, output_prefix, self.real_cycles, self.nproc, model_format, column_labels, rotamer_restraints, ramachandran_restraints, additional_keywords_line))
         
         #Find output file
         if real == 0 : #os.system has correctly finished. Then search for the last refined structure
@@ -490,7 +495,7 @@ class Phenix_real_space_refinement(object):
  
         
         real = os.system("phenix.real_space_refine %s %s %s "
-                        "geometry_restraints.edits.excessive_bond_distance_limit=1000 refinement.run=minimization_global+adp scattering_table=%s c_beta_restraints=False %s refinement.macro_cycles=%d refinement.simulated_annealing=every_macro_cycle nproc=4 %s %s %s ignore_symmetry_conflicts=True resolution=%.2f %s" %(ccp4_in, self.additional, pdb_in, self.scattering_table, output_prefix, self.real_cycles, model_format, rotamer_restraints, ramachandran_restraints, resolution, additional_keywords_line))
+                        "geometry_restraints.edits.excessive_bond_distance_limit=1000 refinement.run=minimization_global+adp scattering_table=%s c_beta_restraints=False %s refinement.macro_cycles=%d refinement.simulated_annealing=every_macro_cycle nproc=%d %s %s %s ignore_symmetry_conflicts=True resolution=%.2f %s" %(ccp4_in, self.additional, pdb_in, self.scattering_table, output_prefix, self.real_cycles, self.nproc, model_format, rotamer_restraints, ramachandran_restraints, resolution, additional_keywords_line))
 
         #Find output file
         if real == 0 : #os.system has correctly finished. Then search for the last refined structure

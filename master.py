@@ -169,6 +169,10 @@ refinement{
             .type = int
             .help = Number of refinement cycles for real space refinement.
             .expert_level = 0
+            nproc = 0
+            .type = int
+            .help = Number of CPUs for phenix.real_space_refine. Set to 0 to use all available CPUs.
+            .expert_level = 0
             }
         target_weights{
             wxc_scale = 0.5
@@ -204,6 +208,10 @@ refinement{
             cycles = 5
             .type = int
             .help = Number of refinement macro cycles for reciprocal space refinement.
+            .expert_level = 0
+            nproc = 0
+            .type = int
+            .help = Number of CPUs for phenix.refine. Set to 0 to use all available CPUs.
             .expert_level = 0
             ordered_solvent = False
             .type = bool

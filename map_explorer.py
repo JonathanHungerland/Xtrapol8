@@ -141,7 +141,7 @@ def do_blob_search(map_object, threshold, peak, coord_pdb, radius, info):
     4) Asign the blobs to the atoms and store the atom associated peak/blob information
     """
 
-    s = ndimage.morphology.generate_binary_structure(3,3)
+    s = ndimage.generate_binary_structure(3, 3)
     if threshold < 0:
         copy = np.where(map_object.data <= threshold, 1, 0)
         copy_peak = np.where(map_object.data <= -peak, 1, 0)
@@ -435,4 +435,3 @@ class XPLOR_Maps(Maps):
         self.unit_cell = np.array(self.map_object.unit_cell.parameters(), dtype=np.float32)
         self.data = self.map_object.data.as_numpy_array()
         self.coord_transform_setup()
-

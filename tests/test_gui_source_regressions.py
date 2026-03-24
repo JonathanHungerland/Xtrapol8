@@ -23,6 +23,7 @@ class GuiSourceRegressionTests(unittest.TestCase):
             "wx.PyValidator",
             "string.letters",
             "wx.NewId(",
+            "ndimage.morphology",
         ]
         for pattern in deprecated_patterns:
             offenders = [path.name for path in self.python_files if pattern in path.read_text()]

@@ -121,7 +121,7 @@ class TabLog(wx.Panel):
                       "************Map explorer************"]
 
     LOG_IDX_INIT = [0, 1, 2]
-    LOG_STEPS_CORE = ["type of structure factors and maps for occupancy"]
+    LOG_STEPS_CORE = ["TYPE OF ESFAS AND MAPS FOR OCCUPANCY"]
     LOG_IDX_CORE_CNC = [3]
     LOG_IDX_CORE_FNF = [3]
 
@@ -224,10 +224,14 @@ class TabLog(wx.Panel):
                     self.buttons[self.LOG_IDX[self.indexLOG - 1]].OnNormal(None)
                 self.buttons[self.LOG_IDX[self.indexLOG]].OnHIGH(None)
                 if self.LOG_STEPS_CORE[0] in line:
-                    qftype = line.split()[1]
-                    occ = line.split()[10]
-                    caption = '%s - occ %s' % (qftype, occ)
-                    self.buttons[self.LOG_IDX[self.indexLOG]]._label2 = caption
+                    match = re.search(
+                        r"CALCULATING\s+(\S+)\s+TYPE OF ESFAS AND MAPS FOR OCCUPANCY\s+([0-9.]+)",
+                        line,
+                    )
+                    if match:
+                        qftype, occ = match.groups()
+                        caption = '%s - occ %s' % (qftype, occ)
+                        self.buttons[self.LOG_IDX[self.indexLOG]]._label2 = caption
 
                 if self.indexLOG < len(self.LOG_STEPS) - 1: self.indexLOG += 1
 
@@ -1290,5 +1294,4 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-
 

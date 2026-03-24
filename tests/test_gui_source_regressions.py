@@ -145,6 +145,17 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("NewH = int(round(self.photoMaxSize * H / W))", text)
         self.assertIn("NewW = int(round(self.photoMaxSize * W / H))", text)
 
+    def test_panel_log_matches_actual_fextr_progress_marker_format(self):
+        """Covers progress tracking so the GUI advances on the real Fextr.py map-calculation log line."""
+        text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn('LOG_STEPS_CORE = ["TYPE OF ESFAS AND MAPS FOR OCCUPANCY"]', text)
+        self.assertIn(
+            'r"CALCULATING\\s+(\\S+)\\s+TYPE OF ESFAS AND MAPS FOR OCCUPANCY\\s+([0-9.]+)"',
+            text,
+        )
+        self.assertNotIn('type of structure factors and maps for occupancy', text)
+        self.assertNotIn('occ = line.split()[10]', text)
+
     def test_panel_log_reads_ragged_pickles_without_plain_numpy_coercion(self):
         """Covers GUI plotting so ragged pickle payloads do not crash during NumPy conversion."""
         text = (REPO_ROOT / "gui" / "panelLog.py").read_text()

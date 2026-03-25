@@ -225,6 +225,16 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("direct_real_space = branch_pool.submit(run_direct_real_space_refinement)", fextr_text)
         self.assertIn("pdb_out_real = direct_real_space.result()", fextr_text)
 
+    def test_gui_scrolled_panels_disable_focus_driven_scroll_into_view(self):
+        """Covers wx ScrolledPanel focus handling so tab/page switches do not trigger deprecated fractional Scroll() calls."""
+        panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        panel_ref_text = (REPO_ROOT / "gui" / "panelRefinement.py").read_text()
+        panel_ext_text = (REPO_ROOT / "gui" / "panelExtrapolation.py").read_text()
+        self.assertIn("self.SetupScrolling(scrollIntoView=False)", panel_log_text)
+        self.assertEqual(panel_log_text.count("self.SetupScrolling(scrollIntoView=False)"), 2)
+        self.assertIn("self.SetupScrolling(scrollIntoView=False)", panel_ref_text)
+        self.assertIn("self.SetupScrolling(scrollIntoView=False)", panel_ext_text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -289,7 +289,7 @@ class TabMainImg(ScrolledPanel):
     # ----------------------------------------------------------------------
     def __init__(self, parent):
         ScrolledPanel.__init__(self, parent=parent, style=wx.VSCROLL | wx.HSCROLL)
-        self.SetupScrolling()
+        self.SetupScrolling(scrollIntoView=False)
         self.parent = parent
         self.mainSizer = wx.BoxSizer(wx.VERTICAL)
         self.plotSizer = wx.BoxSizer(wx.VERTICAL)
@@ -857,7 +857,7 @@ class TabOccResults(ScrolledPanel):
     # ----------------------------------------------------------------------
     def __init__(self, parent, options):
         ScrolledPanel.__init__(self, parent=parent, style=wx.VSCROLL | wx.HSCROLL)
-        self.SetupScrolling()
+        self.SetupScrolling(scrollIntoView=False)
         self.mainSizer = wx.BoxSizer(wx.VERTICAL)
         self.photoMaxSize = 1000
         self.options = options

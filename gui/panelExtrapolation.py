@@ -34,7 +34,7 @@ class TabExtrapolation(ScrolledPanel):
     def __init__(self, parent):
         """"""
         ScrolledPanel.__init__(self, parent=parent, style=wx.VSCROLL | wx.HSCROLL)
-        self.SetupScrolling()
+        self.SetupScrolling(scrollIntoView=False)
         self.createAndLayout()
         self.parent = parent
         

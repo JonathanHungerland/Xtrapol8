@@ -297,6 +297,7 @@ class TabMainImg(ScrolledPanel):
         self.SetSizer(self.mainSizer)
         self.SetAutoLayout(1)
         self.photoMaxSize = 1000
+        self.loaded_fextr_files = set()
         self.mapping = {
             "Riso_CCiso.pickle": self.plot_Riso_CCiso,
             "q_estimation.pickle": self.plot_q_estimation,
@@ -847,6 +848,7 @@ class TabMainImg(ScrolledPanel):
             else:
                 window = self.ImgSizer.GetItem(0).GetWindow()
                 window.Destroy()
+        self.loaded_fextr_files.clear()
         pub.sendMessage("updateFextr", evt=None)#,tabindex=index)
 
 class TabOccResults(ScrolledPanel):

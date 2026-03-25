@@ -345,21 +345,24 @@ class MainFrame(wx.Frame):
         if run >= 0:
             if hasattr(self.notebook.ResultsBooks[run].tabImg, 'FextrSelection'):
                 tab = self.notebook.ResultsBooks[run].tabImg
+                if tab.parent.GetSelection() != 1:
+                    return
                 Fextr = tab.FextrSelection.GetStringSelection()
-                Total = tab.ImgSizer.GetItemCount()
-                for j in range(Total, len(self.Fextr_pngs)):
+                for png_template in self.Fextr_pngs:
                     if Fextr[0] in ['q','k']:
-                        Fextr = Fextr[0] + Fextr[1].upper() + Fextr[2:]
+                        maptype = Fextr[0] + Fextr[1].upper() + Fextr[2:]
                     else:
-                        Fextr = Fextr[0].upper() + Fextr[1:]
-                    png = self.Fextr_pngs[j].replace('tmp', Fextr)
+                        maptype = Fextr[0].upper() + Fextr[1:]
+                    png = png_template.replace('tmp', maptype)
                     filepath = os.path.join(self.inputs[run].output.outdir, png)
 
-                    if os.path.isfile(filepath):
+                    if os.path.isfile(filepath) and filepath not in tab.loaded_fextr_files:
                         if filepath.endswith('pickle'):
-                            tab.addFextrPlot(Fextr, filepath)
+                            tab.addFextrPlot(maptype, filepath)
                         else:
                             tab.addFextrImg(filepath)
+                        tab.loaded_fextr_files.add(filepath)
+                        break
 
     def OnPageClose(self, evt):
         # will check that the run is not running - will clean its thread list accordingly

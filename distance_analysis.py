@@ -80,6 +80,13 @@ def _mode_value(values):
         mode = result[0]
     return np.asarray(mode).reshape(-1)[0]
 
+
+def _scalar_value(value):
+    """
+    Return a Python scalar from scalar-like NumPy values and length-1 arrays.
+    """
+    return np.asarray(value).reshape(-1)[0].item()
+
 def sigmoid_fit(x, L, k, x0):
     """
     logistic function = sigmoidal
@@ -861,7 +868,13 @@ class Distance_analysis(object):
                 if occ_interval_min < 0:
                     occ_interval_min= 0.0
                 
-                occ_histogram = 1/(((val)/np.asarray(peaks, dtype='float64'))+ np.asarray(peaks_x0, dtype='float64'))
+                occ_histogram = _scalar_value(
+                    1
+                    / (
+                        ((val) / np.asarray(peaks, dtype="float64"))
+                        + np.asarray(peaks_x0, dtype="float64")
+                    )
+                )
                 occ_mode = 1/((val/mode)+ mode_x0)
                 occ_av_distance = 1/((val/poptave[1])+ poptave[2])
                 

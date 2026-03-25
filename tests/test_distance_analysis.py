@@ -56,5 +56,19 @@ class ModeValueTests(unittest.TestCase):
             module.scipy.stats.mode = original_mode
 
 
+class ScalarValueTests(unittest.TestCase):
+    def load_module(self):
+        with patched_sys_modules(make_fake_distance_analysis_modules()):
+            return load_module_from_repo("distance_analysis_under_test", "distance_analysis.py")
+
+    def test_scalar_value_extracts_python_float_from_length_one_array(self):
+        module = self.load_module()
+
+        value = module._scalar_value(np.array([0.18]))
+
+        self.assertEqual(value, 0.18)
+        self.assertIsInstance(value, float)
+
+
 if __name__ == "__main__":
     unittest.main()

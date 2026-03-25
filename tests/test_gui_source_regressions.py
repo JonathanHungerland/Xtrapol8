@@ -238,6 +238,25 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("Fextr.create_output_dirs(outdir, final_maptypes)", fextr_text)
         self.assertIn("for path in cleanup_dirs:", fextr_text)
 
+    def test_parallel_occupancy_failures_are_skipped_without_aborting_remaining_jobs(self):
+        """Covers worker crashes so one failed occupancy does not suppress later successful occupancy estimation."""
+        fextr_text = (REPO_ROOT / "Fextr.py").read_text()
+        self.assertIn("failed_occupancies = set()", fextr_text)
+        self.assertIn("def fail_occupancy(occ, group_name, message):", fextr_text)
+        self.assertIn('pending[:] = [job for job in pending if job["occ"] != occ]', fextr_text)
+        self.assertIn('successful_occupancies = [occ for occ in params.occupancies.list_occ if occ not in failed_occupancies]', fextr_text)
+        self.assertIn('return results_in_order, successful_occupancies', fextr_text)
+        self.assertIn('raise RuntimeError("All occupancy jobs failed. See the per-occupancy worker logs in {}".format(outdir))', fextr_text)
+
+    def test_occupancy_estimation_uses_successful_occupancy_subset_after_parallel_failures(self):
+        """Covers downstream indexing so alpha estimation and refinement outputs stay aligned after skipped occupancies."""
+        fextr_text = (REPO_ROOT / "Fextr.py").read_text()
+        self.assertIn("occupancy_results, successful_occupancies = run_parallel_occupancies(", fextr_text)
+        self.assertIn('plotalpha(successful_occupancies, map_expl_lst[1:], map_expl_lst[0], mp_type, log=log).estimate_alpha()', fextr_text)
+        self.assertIn('Distance_analysis(pdb_list, successful_occupancies, resids_lst= residlst, use_waters = distance_use_waters, outsuffix = mp_type, log = log).extract_alpha()', fextr_text)
+        self.assertIn('Pymol_movie(successful_occupancies, resids_lst = residlst).write_pymol_appearance', fextr_text)
+        self.assertIn('recref_pdb_lst[successful_occupancies.index(occ)+1]', fextr_text)
+
     def test_gui_scrolled_panels_disable_focus_driven_scroll_into_view(self):
         """Covers wx ScrolledPanel focus handling so tab/page switches do not trigger deprecated fractional Scroll() calls."""
         panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()

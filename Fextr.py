@@ -2451,6 +2451,7 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
     ordered_results = {}
     running = {}
     pending = jobs[:]
+    failed_occupancies = set()
 
     print_to_main_log("-----------------------------------------")
     print_to_main_log("PARALLEL GROUP EXECUTION")
@@ -2461,6 +2462,24 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
             len(jobs),
         )
     )
+
+    def fail_occupancy(occ, group_name, message):
+        if occ in failed_occupancies:
+            return
+        failed_occupancies.add(occ)
+        print_to_main_log(
+            "[occupancy {:.3f}][{}] WARNING {}".format(
+                occ,
+                group_name,
+                message,
+            )
+        )
+        pending[:] = [job for job in pending if job["occ"] != occ]
+        for job_key, process in list(running.items()):
+            if job_key[0] != occ:
+                continue
+            if process.is_alive():
+                process.terminate()
 
     _GROUP_JOB_WORKER_CONTEXT = {
         "params": params,
@@ -2474,6 +2493,8 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
     }
 
     def start_next_worker():
+        while pending and pending[0]["occ"] in failed_occupancies:
+            pending.pop(0)
         if not pending:
             return False
         job = pending.pop(0)
@@ -2523,6 +2544,8 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
                     )
                 elif event_type == "result":
                     result = event["result"]
+                    if event["occ"] in failed_occupancies:
+                        continue
                     ordered_results[(event["occ"], event["group"])] = result
                     print_to_main_log(
                         "[occupancy {:.3f}][{}] completed in {:.1f}s".format(
@@ -2535,15 +2558,14 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
                     print_to_main_log("[occupancy {:.3f}][{}] ERROR".format(event["occ"], event["group"]))
                     for line in event["traceback"].rstrip().splitlines():
                         print_to_main_log(line)
-                    for process in running.values():
-                        if process.is_alive():
-                            process.terminate()
-                    raise RuntimeError(
-                        "Occupancy {:.3f} ({}) failed. See {}".format(
+                    fail_occupancy(
+                        event["occ"],
+                        event["group"],
+                        "Skipping occupancy {:.3f} after {} failed. See {}".format(
                             event["occ"],
                             event["group"],
                             event["log_path"],
-                        )
+                        ),
                     )
 
             finished = []
@@ -2551,14 +2573,16 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
                 if process.is_alive():
                     continue
                 process.join()
-                if process.exitcode != 0 and job_key not in ordered_results:
-                    raise RuntimeError(
-                        "Occupancy {:.3f} ({}) exited with status {}. See {}".format(
+                if process.exitcode != 0 and job_key not in ordered_results and job_key[0] not in failed_occupancies:
+                    fail_occupancy(
+                        job_key[0],
+                        job_key[1],
+                        "Skipping occupancy {:.3f} after {} exited with status {}. See {}".format(
                             job_key[0],
                             job_key[1],
                             process.exitcode,
                             group_job_log_path(outdir, job_key[0], job_key[1]),
-                        )
+                        ),
                     )
                 finished.append(job_key)
 
@@ -2574,12 +2598,17 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
                 break
         event_queue.close()
 
-    results_in_order = [ordered_results[(job["occ"], job["group"])] for job in jobs]
+    successful_occupancies = [occ for occ in params.occupancies.list_occ if occ not in failed_occupancies]
+    if not successful_occupancies:
+        raise RuntimeError("All occupancy jobs failed. See the per-occupancy worker logs in {}".format(outdir))
+
+    successful_jobs = [job for job in jobs if job["occ"] in successful_occupancies]
+    results_in_order = [ordered_results[(job["occ"], job["group"])] for job in successful_jobs]
     binstats_paths = [result["stats_pickle"] for result in results_in_order]
     negative_paths = [result["negative_pickle"] for result in results_in_order]
     merge_pickle_streams(os.path.join(outdir, "Fextr_binstats.pickle"), binstats_paths)
     merge_pickle_streams(os.path.join(outdir, "Fextr_negative.pickle"), negative_paths)
-    return results_in_order
+    return results_in_order, successful_occupancies
 
 
 def run(args):
@@ -3134,8 +3163,9 @@ def run(args):
         os.remove('%s/pymol_movie.py' %(outdir))
 
     fofo_data = ccp4_map.map_reader(file_name=FoFo.ccp4_name).data.as_numpy_array()
+    successful_occupancies = list(params.occupancies.list_occ)
     if occupancy_parallel_enabled(params.occupancies.parallel, params.occupancies.list_occ, final_maptypes):
-        occupancy_results = run_parallel_occupancies(
+        occupancy_results, successful_occupancies = run_parallel_occupancies(
             params=params,
             DH=DH,
             FoFo=FoFo,
@@ -3174,6 +3204,16 @@ def run(args):
             os.chdir(outdir)
             plot_Fextr_sigmas()
             plot_negative_reflections()
+
+    if len(successful_occupancies) != len(params.occupancies.list_occ):
+        skipped_occupancies = [occ for occ in params.occupancies.list_occ if occ not in successful_occupancies]
+        print("WARNING: Skipping failed occupancies {}".format(", ".join("{:.3f}".format(occ) for occ in skipped_occupancies)))
+        print(
+            "WARNING: Skipping failed occupancies {}".format(
+                ", ".join("{:.3f}".format(occ) for occ in skipped_occupancies)
+            ),
+            file=log,
+        )
 
     if qFextr_map:
         qFextr_map_expl_fles = map_results['qFextr_map']['map_expl']
@@ -3349,9 +3389,9 @@ def run(args):
 
         if params.map_explorer.occupancy_estimation in ("difference_map_maximization", "distance_analysis"):
             #in case of distance_analysis alpha and occ will be overwritten if the requirements for distance_analysis are met (calm-and-curious, run_refinement)
-            alpha, occ, _, _ = plotalpha(params.occupancies.list_occ, map_expl_lst[1:], map_expl_lst[0], mp_type, log=log).estimate_alpha()
+            alpha, occ, _, _ = plotalpha(successful_occupancies, map_expl_lst[1:], map_expl_lst[0], mp_type, log=log).estimate_alpha()
         elif params.map_explorer.occupancy_estimation == "difference_map_PearsonCC":
-            _, _, alpha, occ = plotalpha(params.occupancies.list_occ, map_expl_lst[1:], map_expl_lst[0], mp_type, log=log).estimate_alpha()
+            _, _, alpha, occ = plotalpha(successful_occupancies, map_expl_lst[1:], map_expl_lst[0], mp_type, log=log).estimate_alpha()
         
         if (params.f_and_maps.fast_and_furious == False and params.refinement.run_refinement):
             # If water molecules are updated during refinement, waters will be added and removed and their numbers are not in relation to the original waters in the input model
@@ -3379,9 +3419,9 @@ def run(args):
             #Overwrite the earlier found alpha and occupancy if params.map_explorer.occupancy_estimation = "distance_analysis"
             #if params.map_explorer.use_occupancy_from_distance_analysis:
             if params.map_explorer.occupancy_estimation == "distance_analysis":
-                alpha, occ = Distance_analysis(pdb_list, params.occupancies.list_occ, resids_lst= residlst, use_waters = distance_use_waters, outsuffix = mp_type, log = log).extract_alpha()
+                alpha, occ = Distance_analysis(pdb_list, successful_occupancies, resids_lst= residlst, use_waters = distance_use_waters, outsuffix = mp_type, log = log).extract_alpha()
             else:
-                _,_ = Distance_analysis(pdb_list, params.occupancies.list_occ, resids_lst= residlst, use_waters = distance_use_waters, outsuffix = mp_type, log = log).extract_alpha()
+                _,_ = Distance_analysis(pdb_list, successful_occupancies, resids_lst= residlst, use_waters = distance_use_waters, outsuffix = mp_type, log = log).extract_alpha()
             #print("---------", file=log)
             print("", file=log)
             print("")            
@@ -3412,33 +3452,33 @@ def run(args):
                     ccp4_list = [re.search(r"(.+?)_reciprocal", fle).group(1) + ".ccp4" for fle in pymol_mtz_list]
                 model_label='%s_real_space'%(mp_type)
                 ccp4_map_label='%s'%(mp)
-            if len(ccp4_list) == len(pymol_pdb_list) == len(params.occupancies.list_occ):
-                Pymol_movie(params.occupancies.list_occ, pdblst=pymol_pdb_list, ccp4_maps = ccp4_list, resids_lst = residlst, model_label=model_label, ccp4_map_label=ccp4_map_label).write_pymol_script()
+            if len(ccp4_list) == len(pymol_pdb_list) == len(successful_occupancies):
+                Pymol_movie(successful_occupancies, pdblst=pymol_pdb_list, ccp4_maps = ccp4_list, resids_lst = residlst, model_label=model_label, ccp4_map_label=ccp4_map_label).write_pymol_script()
             else:
-                Pymol_movie(params.occupancies.list_occ, pdblst=pymol_pdb_list, resids_lst = residlst, model_label=model_label).write_pymol_script()
+                Pymol_movie(successful_occupancies, pdblst=pymol_pdb_list, resids_lst = residlst, model_label=model_label).write_pymol_script()
                 
             #If estimated occupancy if not in list (will be case when using distance analysis or when plotalpha fails), take the closest occupancy from the list
-            if occ not in params.occupancies.list_occ:
-                occ = min(params.occupancies.list_occ, key = lambda x: abs(x-occ))
+            if occ not in successful_occupancies:
+                occ = min(successful_occupancies, key = lambda x: abs(x-occ))
                 alpha = 1/occ
             occ_dir = "%s/%s_%.3f" %(outdir, dir_prefix, occ)
             
             #ddm calculation
-            pdb_for_ddm = pdb_list[params.occupancies.list_occ.index(occ)+1]
+            pdb_for_ddm = pdb_list[successful_occupancies.index(occ)+1]
             print("----Generate distance difference plot----")
             ddm_out = Difference_distance_analysis(DH.pdb_in, pdb_for_ddm, ligands = DH.extract_ligand_codes(), outdir=occ_dir, scale=params.output.ddm_scale).ddms()
             print('---------------------------')
             
             #Coot script
             mtzs_for_coot  = []
-            if len(recref_mtz_lst) != len(params.occupancies.list_occ):
+            if len(recref_mtz_lst) != len(successful_occupancies):
                 occ_list_mtz = [(re.search(r'occupancy\_(.+?)\/',mtz).group(1)) for mtz in recref_mtz_lst]
                 try:
                     mtz_rec = recref_mtz_lst[occ_list_mtz.index(occ)]
                 except ValueError:
                     mtz_rec = ""
             else:
-                mtz_rec = recref_mtz_lst[params.occupancies.list_occ.index(occ)]
+                mtz_rec = recref_mtz_lst[successful_occupancies.index(occ)]
             append_if_file_exist(mtzs_for_coot, mtz_rec)
             if ( params.refinement.phenix_keywords.density_modification.density_modification or params.refinement.refmac_keywords.density_modification.density_modification):
                 #mtz_dm = re.sub(".mtz$","_densitymod.mtz", mtz_rec)
@@ -3452,9 +3492,9 @@ def run(args):
             append_if_file_exist(mtzs_for_coot,os.path.abspath(mtz_extr))
 
             pdbs_for_coot = [DH.pdb_in,
-                    recref_pdb_lst[params.occupancies.list_occ.index(occ)+1],
-                    realref_lst[params.occupancies.list_occ.index(occ)+1],
-                    recrealref_lst[params.occupancies.list_occ.index(occ)+1]]
+                    recref_pdb_lst[successful_occupancies.index(occ)+1],
+                    realref_lst[successful_occupancies.index(occ)+1],
+                    recrealref_lst[successful_occupancies.index(occ)+1]]
             #if outname == 'triggered': #if dummy name applied, the files still contain the dummy name
                 #mtzs_for_coot = map(lambda fle: re.sub(r"triggered",params.output.outname, fle), mtzs_for_coot)
                 #pdbs_for_coot = map(lambda fle: re.sub(r"triggered",params.output.outname, fle), pdbs_for_coot)
@@ -3462,8 +3502,8 @@ def run(args):
         
         elif (params.f_and_maps.fast_and_furious == False and params.refinement.run_refinement == False):
             #If estimated occupancy if not in list (will be case when using distance analysis or when plotalpha fails), take the closest occupancy from the list
-            if occ not in params.occupancies.list_occ:
-                occ = min(params.occupancies.list_occ, key = lambda x: abs(x-occ))
+            if occ not in successful_occupancies:
+                occ = min(successful_occupancies, key = lambda x: abs(x-occ))
                 alpha = 1/occ
             occ_dir = "%s/%s_%.3f" %(outdir, dir_prefix, occ)
             mtzs_for_coot = []
@@ -3474,8 +3514,8 @@ def run(args):
          
         else:
             #If estimated occupancy not in list (will be case when using distance analysis or when plotalpha fails), take the closest occupancy from the list
-            if occ not in params.occupancies.list_occ:
-                occ = min(params.occupancies.list_occ, key = lambda x: abs(x-occ))
+            if occ not in successful_occupancies:
+                occ = min(successful_occupancies, key = lambda x: abs(x-occ))
                 alpha = 1/occ
             occ_dir = "%s/%s_%.3f" %(outdir, dir_prefix, occ)
             
@@ -3486,7 +3526,7 @@ def run(args):
     
     #Add final lines to Pymol_script
     if os.path.isfile('%s/pymol_movie.py' %(outdir)):
-        Pymol_movie(params.occupancies.list_occ, resids_lst = residlst).write_pymol_appearance('%s/pymol_movie.py' %(outdir))
+        Pymol_movie(successful_occupancies, resids_lst = residlst).write_pymol_appearance('%s/pymol_movie.py' %(outdir))
         
     #Send the dictonary to the GUI in order to recuperate the occupancies found for each maptype -> write as pickle file to be opened by the GUI
     #if params.output.GUI:

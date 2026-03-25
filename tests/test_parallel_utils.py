@@ -27,6 +27,18 @@ class ParallelUtilsTests(unittest.TestCase):
         module = self.load_module()
         self.assertEqual(module.resolve_nproc(12), 12)
 
+    def test_plan_equal_cpu_workers_uses_one_worker_per_job_when_possible(self):
+        module = self.load_module()
+        self.assertEqual(module.plan_equal_cpu_workers(6, total_cpus=64), (6, 10))
+
+    def test_plan_equal_cpu_workers_caps_workers_to_available_cpus(self):
+        module = self.load_module()
+        self.assertEqual(module.plan_equal_cpu_workers(10, total_cpus=4), (4, 1))
+
+    def test_plan_equal_cpu_workers_honors_explicit_worker_limit(self):
+        module = self.load_module()
+        self.assertEqual(module.plan_equal_cpu_workers(6, total_cpus=64, max_workers=3), (3, 21))
+
 
 if __name__ == "__main__":
     unittest.main()

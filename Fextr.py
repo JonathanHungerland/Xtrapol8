@@ -71,6 +71,7 @@ TODO:
 - ddm with linear scale / sum of differences instead of plotting for each atom
 """
 from __future__ import division, print_function
+import multiprocessing
 import re
 import os
 import sys
@@ -78,6 +79,8 @@ import random
 import subprocess
 import shutil
 import pickle
+import time
+import traceback
 from select import select
 from datetime import datetime
 import numpy as np
@@ -120,6 +123,7 @@ from distance_analysis import *
 from Fextr_utils import *
 import version
 from master import master_phil
+from parallel_utils import plan_equal_cpu_workers, supports_fork_parallelism
 
 
 class SymManager(symmetry.manager):
@@ -1985,7 +1989,485 @@ class Filesandmaps(object):
     #index = log.name.find("Xtrapol8")+len("Xtrapol8")
     #new_name = log.name[:index]+".log"
     #os.rename(log.name, new_name)
-            
+
+_OCCUPANCY_WORKER_CONTEXT = None
+
+
+def print_to_main_log(message):
+    print(message)
+    if "log" in globals() and log is not None:
+        print(message, file=log)
+
+
+def flush_output_streams():
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None), globals().get("log")):
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except Exception:
+            pass
+
+
+def redirect_process_output(log_path):
+    flush_output_streams()
+    worker_log = open(log_path, "w", buffering=1)
+    os.dup2(worker_log.fileno(), 1)
+    os.dup2(worker_log.fileno(), 2)
+    sys.stdout = os.fdopen(1, "w", buffering=1, closefd=False)
+    sys.stderr = os.fdopen(2, "w", buffering=1, closefd=False)
+    return worker_log
+
+
+def occupancy_parallel_enabled(parallel_mode, occupancies):
+    if len(occupancies) <= 1:
+        return False
+    if parallel_mode == "off":
+        return False
+    if parallel_mode == "on":
+        return True
+    return supports_fork_parallelism()
+
+
+def occupancy_worker_log_path(outdir, occ):
+    return os.path.join(outdir, "occupancy_{:.3f}_Xtrapol8.log".format(occ))
+
+
+def occupancy_worker_stats_dir(outdir, occ):
+    return os.path.join(outdir, ".occupancy_parallel", "occupancy_{:.3f}".format(occ))
+
+
+def initialize_maptype_results(final_maptypes, fofo_ref, pdb_in):
+    result_store = {}
+    for mp in final_maptypes:
+        result_store[mp] = {
+            "map_expl": [fofo_ref],
+            "recref_mtz": [],
+            "recref_pdb": [pdb_in],
+            "realref": [pdb_in],
+            "recrealref": [pdb_in],
+            "fextr_mtz": [],
+        }
+    return result_store
+
+
+def append_occupancy_result(result_store, occupancy_result):
+    for mp, mp_result in occupancy_result["map_results"].items():
+        store = result_store[mp]
+        store["map_expl"].append(mp_result["map_expl"])
+        append_if_file_exist(store["recref_mtz"], mp_result["recref_mtz"])
+        append_if_file_exist(store["recref_pdb"], mp_result["recref_pdb"])
+        append_if_file_exist(store["realref"], mp_result["realref"])
+        append_if_file_exist(store["recrealref"], mp_result["recrealref"])
+        append_if_file_exist(store["fextr_mtz"], mp_result["fextr_mtz"])
+
+
+def merge_pickle_streams(output_path, input_paths):
+    with open(output_path, "wb") as out_handle:
+        for input_path in input_paths:
+            if not os.path.isfile(input_path):
+                continue
+            with open(input_path, "rb") as in_handle:
+                while True:
+                    try:
+                        pickle.dump(pickle.load(in_handle), out_handle)
+                    except EOFError:
+                        break
+
+
+def format_occupancy_step_message(occ, step, maptype):
+    return "[occupancy {:.3f}] step: {} {}".format(occ, step, maptype)
+
+
+def run_single_occupancy(
+    occ,
+    params,
+    DH,
+    FoFo,
+    FoFo_type,
+    final_maptypes,
+    outdir,
+    outname,
+    mask,
+    fofo_data,
+    stats_outdir=None,
+    progress=None,
+    warning=None,
+):
+    if stats_outdir is None:
+        stats_outdir = outdir
+    if not os.path.isdir(stats_outdir):
+        os.makedirs(stats_outdir)
+
+    occupancy_result = {
+        "occ": occ,
+        "stats_pickle": os.path.join(stats_outdir, "Fextr_binstats.pickle"),
+        "negative_pickle": os.path.join(stats_outdir, "Fextr_negative.pickle"),
+        "map_results": {},
+    }
+    original_cwd = os.getcwd()
+
+    Fextr = Fextrapolate(
+        FoFo.fdif,
+        FoFo.fdif_q,
+        FoFo.fdif_k,
+        FoFo.sigf_diff,
+        FoFo.q,
+        FoFo.k,
+        DH.fobs_off_scaled,
+        DH.fobs_on_scaled,
+        DH.fmodel,
+        DH.rfree,
+        occ,
+        name_out=outname,
+        neg_refl_handle=params.f_and_maps.negative_and_missing,
+        crystal_gridding=FoFo.get_crystal_gridding(),
+    )
+
+    new_dirpath_q, new_dirpath_k, new_dirpath = Fextr.create_output_dirs(outdir)
+
+    try:
+        for mp in final_maptypes:
+            mp_result = {
+                "map_expl": None,
+                "recref_mtz": "",
+                "recref_pdb": "",
+                "realref": "",
+                "recrealref": "",
+                "fextr_mtz": "",
+            }
+            occupancy_result["map_results"][mp] = mp_result
+            mp_name = mp.split("_map")[0]
+            if progress is not None:
+                progress("calculate", mp_name.upper())
+            print(mp)
+            if mp in ("qFextr_map", "qFgenick_map", "qFextr_calc_map"):
+                os.chdir(new_dirpath_q)
+            elif mp in ("kFextr_map", "kFgenick_map", "kFextr_calc_map"):
+                os.chdir(new_dirpath_k)
+            else:
+                os.chdir(new_dirpath)
+
+            if mp == "qFextr_map":
+                Fextr.fextr(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "qFgenick_map":
+                Fextr.fgenick(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "qFextr_calc_map":
+                Fextr.fextr_calc(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "kFextr_map":
+                Fextr.fextr(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "kFgenick_map":
+                Fextr.fgenick(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "kFextr_calc_map":
+                Fextr.fextr_calc(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "Fextr_map":
+                Fextr.fextr(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "Fgenick_map":
+                Fextr.fgenick(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
+            elif mp == "Fextr_calc_map":
+                Fextr.fextr_calc(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
+                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
+                compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
+            else:
+                print("%s not recognised as extrapolated map type" % mp)
+
+            print("\n************Map explorer************", file=log)
+            print("\n************Map explorer************")
+            data = ccp4_map.map_reader(file_name=Fextr.ccp4_name_FoFc).data.as_numpy_array()
+            pos = 0
+            neg = 0
+
+            for i in range(mask.shape[1]):
+                tmp = data[mask[0, i]].sum()
+                if tmp > 0:
+                    pos += tmp
+                else:
+                    neg -= tmp
+
+            try:
+                CC = pearsonr(fofo_data.flatten(), data.flatten())[0]
+            except ValueError:
+                print("Pearson correlation factor could not be calculated. The CC will be set to zero.")
+                if warning is not None:
+                    warning(
+                        "Pearson correlation factor could not be calculated for {}. The CC was set to zero.".format(
+                            mp_name,
+                        )
+                    )
+                CC = 0
+
+            mp_result["map_expl"] = [CC, pos, neg, pos + neg]
+            print("m%s-DFcalc map explored" % Fextr.maptype, file=log)
+            print("m%s-DFcalc map explored" % Fextr.maptype)
+
+            if (params.f_and_maps.fast_and_furious is False and params.refinement.run_refinement):
+                if progress is not None:
+                    progress("refine", mp_name.upper())
+                print("\n************Refinements************")
+                print("\n************Refinements************", file=log)
+                mtz_out, pdb_rec, pdb_real, pdb_rec_real = Fextr.refinements(
+                    reciprocal_space_refinement=params.refinement.reciprocal_space,
+                    real_space_refiment=params.refinement.real_space,
+                    pdb_in=DH.pdb_in,
+                    additional=DH.additional,
+                    ligands_list=DH.extract_ligand_codes(),
+                    F_column_labels=Fextr.FM.labels["data"],
+                    phenix_map_column_labels="%s,PHI%s" % (Fextr.FM.labels["map_coefs_map"], Fextr.FM.labels["map_coefs_map"]),
+                    coot_map_column_labels="%s, PHI%s, %s, PHI%s"
+                    % (
+                        Fextr.FM.labels["map_coefs_map"],
+                        Fextr.FM.labels["map_coefs_map"],
+                        Fextr.FM.labels["map_coefs_diff"],
+                        Fextr.FM.labels["map_coefs_diff"],
+                    ),
+                    scattering_table=params.scattering_table,
+                    phenix_keywords=params.refinement.phenix_keywords,
+                    refmac_keywords=params.refinement.refmac_keywords,
+                )
+
+                print("--------------", file=log)
+                mp_result["recref_mtz"] = os.path.abspath(mtz_out)
+                mp_result["recref_pdb"] = os.path.abspath(pdb_rec)
+                mp_result["recrealref"] = os.path.abspath(pdb_rec_real)
+                mp_result["realref"] = os.path.abspath(pdb_real)
+                if warning is not None:
+                    for label, path in (
+                        ("reciprocal mtz", mp_result["recref_mtz"]),
+                        ("reciprocal pdb", mp_result["recref_pdb"]),
+                        ("real-space pdb", mp_result["realref"]),
+                        ("reciprocal+real pdb", mp_result["recrealref"]),
+                    ):
+                        if os.path.isfile(path) is False:
+                            warning(
+                                "ERROR missing {} output after {}".format(
+                                    label,
+                                    mp_name,
+                                )
+                            )
+            elif params.f_and_maps.fast_and_furious:
+                mp_result["fextr_mtz"] = os.path.abspath(Fextr.F_name)
+                if warning is not None and os.path.isfile(mp_result["fextr_mtz"]) is False:
+                    warning("ERROR missing extrapolated mtz after {}".format(mp_name))
+
+            print("\n---> Results in %s" % (os.getcwd()), file=log)
+            print("------------------------------------", file=log)
+            print("\n---> Results in %s" % (os.getcwd()))
+            print("------------------------------------")
+    finally:
+        if len(os.listdir(new_dirpath_q)) == 0:
+            os.rmdir(new_dirpath_q)
+        if len(os.listdir(new_dirpath)) == 0:
+            os.rmdir(new_dirpath)
+        if len(os.listdir(new_dirpath_k)) == 0:
+            os.rmdir(new_dirpath_k)
+        os.chdir(original_cwd)
+
+    return occupancy_result
+
+
+def occupancy_worker_main(occ, nproc_per_worker, event_queue):
+    global log
+    context = _OCCUPANCY_WORKER_CONTEXT
+    log_path = occupancy_worker_log_path(context["outdir"], occ)
+    stats_dir = occupancy_worker_stats_dir(context["outdir"], occ)
+    start_time = time.time()
+
+    def progress(step, maptype):
+        event_queue.put({"type": "state", "occ": occ, "step": step, "maptype": maptype})
+
+    def warning(message):
+        event_queue.put({"type": "warning", "occ": occ, "message": message})
+
+    try:
+        worker_log = redirect_process_output(log_path)
+        log = worker_log
+        params = context["params"]
+        params.refinement.phenix_keywords.main.nproc = nproc_per_worker
+        params.refinement.phenix_keywords.real_space_refine.nproc = nproc_per_worker
+        print("Occupancy worker started for {:.3f}".format(occ))
+        print("Assigned CPUs per occupancy: {:d}".format(nproc_per_worker))
+        result = run_single_occupancy(
+            occ=occ,
+            params=params,
+            DH=context["DH"],
+            FoFo=context["FoFo"],
+            FoFo_type=context["FoFo_type"],
+            final_maptypes=context["final_maptypes"],
+            outdir=context["outdir"],
+            outname=context["outname"],
+            mask=context["mask"],
+            fofo_data=context["fofo_data"],
+            stats_outdir=stats_dir,
+            progress=progress,
+            warning=warning,
+        )
+        result["duration"] = time.time() - start_time
+        result["log_path"] = log_path
+        result["nproc_per_worker"] = nproc_per_worker
+        event_queue.put({"type": "result", "occ": occ, "result": result})
+    except Exception:
+        event_queue.put(
+            {
+                "type": "error",
+                "occ": occ,
+                "log_path": log_path,
+                "traceback": traceback.format_exc(),
+            }
+        )
+        raise
+
+
+def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir, outname, mask, fofo_data):
+    global _OCCUPANCY_WORKER_CONTEXT
+    occupancies = list(params.occupancies.list_occ)
+    flush_output_streams()
+    worker_count, nproc_per_worker = plan_equal_cpu_workers(
+        len(occupancies),
+        max_workers=params.occupancies.max_parallel,
+    )
+    ctx = multiprocessing.get_context("fork")
+    event_queue = ctx.Queue()
+    ordered_results = {}
+    running = {}
+    pending = occupancies[:]
+
+    print_to_main_log("-----------------------------------------")
+    print_to_main_log("PARALLEL OCCUPANCY EXECUTION")
+    print_to_main_log("-----------------------------------------")
+    print_to_main_log(
+        "Launching {:d} occupancy workers across {:d} occupancies with {:d} CPUs per occupancy.".format(
+            worker_count,
+            len(occupancies),
+            nproc_per_worker,
+        )
+    )
+
+    _OCCUPANCY_WORKER_CONTEXT = {
+        "params": params,
+        "DH": DH,
+        "FoFo": FoFo,
+        "FoFo_type": FoFo_type,
+        "final_maptypes": final_maptypes,
+        "outdir": outdir,
+        "outname": outname,
+        "mask": mask,
+        "fofo_data": fofo_data,
+    }
+
+    def start_next_worker():
+        if not pending:
+            return False
+        occ = pending.pop(0)
+        log_path = occupancy_worker_log_path(outdir, occ)
+        process = ctx.Process(target=occupancy_worker_main, args=(occ, nproc_per_worker, event_queue))
+        process.daemon = True
+        process.start()
+        running[occ] = process
+        print_to_main_log(
+            "[occupancy {:.3f}] started with {:d} CPUs, worker log: {}".format(
+                occ,
+                nproc_per_worker,
+                log_path,
+            )
+        )
+        return True
+
+    try:
+        while len(running) < worker_count and start_next_worker():
+            pass
+
+        while running:
+            try:
+                event = event_queue.get(timeout=0.2)
+            except Exception:
+                event = None
+
+            if event is not None:
+                event_type = event["type"]
+                if event_type == "state":
+                    print_to_main_log(
+                        format_occupancy_step_message(
+                            event["occ"],
+                            event["step"],
+                            event["maptype"],
+                        )
+                    )
+                elif event_type == "warning":
+                    print_to_main_log("[occupancy {:.3f}] WARNING {}".format(event["occ"], event["message"]))
+                elif event_type == "result":
+                    result = event["result"]
+                    ordered_results[event["occ"]] = result
+                    print_to_main_log(
+                        "[occupancy {:.3f}] completed in {:.1f}s".format(
+                            event["occ"],
+                            result["duration"],
+                        )
+                    )
+                elif event_type == "error":
+                    print_to_main_log("[occupancy {:.3f}] ERROR".format(event["occ"]))
+                    for line in event["traceback"].rstrip().splitlines():
+                        print_to_main_log(line)
+                    for process in running.values():
+                        if process.is_alive():
+                            process.terminate()
+                    raise RuntimeError(
+                        "Occupancy {:.3f} failed. See {}".format(
+                            event["occ"],
+                            event["log_path"],
+                        )
+                    )
+
+            finished = []
+            for occ, process in running.items():
+                if process.is_alive():
+                    continue
+                process.join()
+                if process.exitcode != 0 and occ not in ordered_results:
+                    raise RuntimeError(
+                        "Occupancy {:.3f} exited with status {}. See {}".format(
+                            occ,
+                            process.exitcode,
+                            occupancy_worker_log_path(outdir, occ),
+                        )
+                    )
+                finished.append(occ)
+
+            for occ in finished:
+                running.pop(occ, None)
+                start_next_worker()
+    finally:
+        _OCCUPANCY_WORKER_CONTEXT = None
+        while not event_queue.empty():
+            try:
+                event_queue.get_nowait()
+            except Exception:
+                break
+        event_queue.close()
+
+    results_in_order = [ordered_results[occ] for occ in occupancies]
+    binstats_paths = [result["stats_pickle"] for result in results_in_order]
+    negative_paths = [result["negative_pickle"] for result in results_in_order]
+    merge_pickle_streams(os.path.join(outdir, "Fextr_binstats.pickle"), binstats_paths)
+    merge_pickle_streams(os.path.join(outdir, "Fextr_negative.pickle"), negative_paths)
+    return results_in_order
+
+
 def run(args):
     
     version.VERSION
@@ -2177,6 +2659,14 @@ def run(args):
         params.occupancies.list_occ = None
     else:
         params.occupancies.list_occ = occ_lst
+    if (
+        params.occupancies.parallel == "on"
+        and len(occ_lst) > 1
+        and supports_fork_parallelism() is False
+    ):
+        remarks.append(
+            "occupancies.parallel=on requested occupancy workers, but fork-based multiprocessing is unavailable. Falling back to serial execution."
+        )
     ################################################################
     if len(remarks) > 0:
         print('-----------------------------------------', file=log)
@@ -2517,64 +3007,8 @@ def run(args):
     print("CALCULATE (Q/K-WEIGHTED) FEXTRAPOLATED MAPS", file=log)
     print('-----------------------------------------', file=log)
 
-    #For each map type, keep track of the map_explorer files. Therefore generate lists with output file names. Not elegant, but works.
-    if qFextr_map:
-        qFextr_map_expl_fles  = [FoFo_ref]
-        qFextr_recref_mtz_lst = []
-        qFextr_recref_pdb_lst = [DH.pdb_in]
-        qFextr_realref_lst    = [DH.pdb_in]
-        qFextr_recrealref_lst = [DH.pdb_in]
-    if kFextr_map:
-        kFextr_map_expl_fles  = [FoFo_ref]
-        kFextr_recref_mtz_lst = []
-        kFextr_recref_pdb_lst = [DH.pdb_in]
-        kFextr_realref_lst    = [DH.pdb_in]
-        kFextr_recrealref_lst = [DH.pdb_in]
-    if Fextr_map:
-        Fextr_map_expl_fles  = [FoFo_ref]
-        Fextr_recref_mtz_lst = []
-        Fextr_recref_pdb_lst = [DH.pdb_in]
-        Fextr_recrealref_lst = [DH.pdb_in]
-        Fextr_realref_lst    = [DH.pdb_in]
-    if qFgenick_map:
-        qFgenick_map_expl_fles  = [FoFo_ref]
-        qFgenick_recref_mtz_lst = []
-        qFgenick_recref_pdb_lst = [DH.pdb_in]
-        qFgenick_realref_lst    = [DH.pdb_in]
-        qFgenick_recrealref_lst = [DH.pdb_in]
-    if kFgenick_map:
-        kFgenick_map_expl_fles  = [FoFo_ref]
-        kFgenick_recref_mtz_lst = []
-        kFgenick_recref_pdb_lst = [DH.pdb_in]
-        kFgenick_realref_lst    = [DH.pdb_in]
-        kFgenick_recrealref_lst = [DH.pdb_in]
-    if Fgenick_map:
-        Fgenick_map_expl_fles  = [FoFo_ref]
-        Fgenick_recref_mtz_lst = []
-        Fgenick_recref_pdb_lst = [DH.pdb_in]
-        Fgenick_realref_lst    = [DH.pdb_in]
-        Fgenick_recrealref_lst = [DH.pdb_in]
-    if qFextr_calc_map:
-        qFextr_calc_map_expl_fles  = [FoFo_ref]
-        qFextr_calc_recref_mtz_lst = []
-        qFextr_calc_recref_pdb_lst = [DH.pdb_in]
-        qFextr_calc_realref_lst    = [DH.pdb_in]
-        qFextr_calc_recrealref_lst = [DH.pdb_in]
-    if kFextr_calc_map:
-        kFextr_calc_map_expl_fles  = [FoFo_ref]
-        kFextr_calc_recref_mtz_lst = []
-        kFextr_calc_recref_pdb_lst = [DH.pdb_in]
-        kFextr_calc_realref_lst    = [DH.pdb_in]
-        kFextr_calc_recrealref_lst = [DH.pdb_in]
-    if Fextr_calc_map:
-        Fextr_calc_map_expl_fles  = [FoFo_ref]
-        Fextr_calc_recref_mtz_lst = []
-        Fextr_calc_recref_pdb_lst = [DH.pdb_in]
-        Fextr_calc_realref_lst    = [DH.pdb_in]
-        Fextr_calc_recrealref_lst = [DH.pdb_in]
-    #fast_and_furious mode: no refinement, but need to keep track of structure factor files
-    if (params.f_and_maps.fast_and_furious): Fextr_mtz_lst = []
-    
+    map_results = initialize_maptype_results(final_maptypes, FoFo_ref, DH.pdb_in)
+
     #Remove pickle file with Festr stats because otherwise plot will consist results from previous runs
     if os.path.isfile('%s/Fextr_binstats.pickle' %(outdir)):
         os.remove('%s/Fextr_binstats.pickle' %(outdir))
@@ -2586,231 +3020,105 @@ def run(args):
         os.remove('%s/pymol_movie.py' %(outdir))
 
     fofo_data = ccp4_map.map_reader(file_name=FoFo.ccp4_name).data.as_numpy_array()
-    ################################################################
-    #Loop over occupancies and calculate extrapolated structure factors
-    for occ in params.occupancies.list_occ:
-        Fextr = Fextrapolate(FoFo.fdif,
-                             FoFo.fdif_q,
-                             FoFo.fdif_k,
-                             FoFo.sigf_diff,
-                             FoFo.q,
-                             FoFo.k,
-                             DH.fobs_off_scaled,
-                             DH.fobs_on_scaled,
-                             DH.fmodel,
-                             DH.rfree,
-                             occ,
-                             name_out         = outname,
-                             neg_refl_handle  = params.f_and_maps.negative_and_missing,
-                             crystal_gridding = FoFo.get_crystal_gridding())
-        
-        #Results stored in folder depending on occupancy and whether q-weighting is applied.
-        new_dirpath_q, new_dirpath_k, new_dirpath = Fextr.create_output_dirs(outdir)
-        
-        #for each F_and_map type calculate structure factors and maps
-        for mp in final_maptypes:
-            print(mp)
-            if mp in ('qFextr_map','qFgenick_map','qFextr_calc_map'):
-                os.chdir(new_dirpath_q)
-            elif mp in ('kFextr_map','kFgenick_map','kFextr_calc_map'):
-                os.chdir(new_dirpath_k)
-            else:
-                os.chdir(new_dirpath)
-            
-            #Depending on maptype, do following steps:
-            #1) calculate the structure factors, write out to mtz file, handle negative reflections and generate associated plots or write to pickle file for later usuage
-            #   calculate map coefficients and write to mtz and ccp4 files (latter only for mFo-DFc type)
-            #2) get stats and write to pickle file in order to generate plot afterwards with all map types and occupancies
-            #3) compute signal to noise and plot
-            #As same steps are repeated, but with a sifferent Fextr-function, I should think of a more clever way to reduce the redundancy here (and in following if clauses)
-            if mp == 'qFextr_map':
-                Fextr.fextr(qweight=True, kweight=False, outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fextr_ms, '%s' %(Fextr.maptype), log=log)
-                #cc_list.append(plot_F1_F2(DH.fobs_off_scaled,Fextr.fextr_ms, F1_name = "Freference",F2_name = "Fextr"))
-            elif mp == 'qFgenick_map':
-                Fextr.fgenick(qweight=True, kweight=False,outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fgenick_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'qFextr_calc_map':
-                Fextr.fextr_calc(qweight=True, kweight=False,outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fextr_calc_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'kFextr_map':
-                Fextr.fextr(qweight=False, kweight=True, outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fextr_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'kFgenick_map':
-                Fextr.fgenick(qweight=False, kweight=True, outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fgenick_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'kFextr_calc_map':
-                Fextr.fextr_calc(qweight=False, kweight=True, outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fextr_calc_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'Fextr_map':
-                Fextr.fextr(qweight=False, kweight=False,outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fextr_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'Fgenick_map':
-                Fextr.fgenick(qweight=False, kweight=False,outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fgenick_ms, '%s' %(Fextr.maptype), log=log)
-            elif mp == 'Fextr_calc_map':
-                Fextr.fextr_calc(qweight=False, kweight=False,outdir_for_negstats = outdir)
-                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, outdir)
-                compute_f_sigf(Fextr.fextr_calc_ms, '%s' %(Fextr.maptype), log=log)
-            else:
-                print("%s not recognised as extrapolated map type" % mp)
-                        
-            #Use ccp4 map of type mFo-DFc to integrate the masked map
-            print("\n************Map explorer************", file=log)
-            print("\n************Map explorer************")
-            #map_expl_out = map_explorer(Fextr.ccp4_name_FoFc, DH.pdb_in, params.map_explorer.radius, params.map_explorer.peak_integration_floor, params.map_explorer.peak_detection_threshold, maptype=Fextr.maptype)
-            data = ccp4_map.map_reader(file_name=Fextr.ccp4_name_FoFc).data.as_numpy_array()
-            pos = 0
-            neg = 0
-            #print(mask[0,0])
-            
-            for i in range(mask.shape[1]):
-                tmp = data[mask[0, i]].sum()
-                if tmp > 0: pos+= tmp
-                else: neg -= tmp
-                
-            #print("data",data)
-            #print("data.shape", data.shape)
-            #integrated_values.append([pos, neg, pos+neg])
-            try:
-                CC = pearsonr(fofo_data.flatten(), data.flatten())[0]
-            except ValueError:
-                #the fft_map function might change the cystal gridding. In that case the maps do not have the same shape
-                #and thus the CC cannot be calculated. Not nice, but at least Xtrapol8 can continue.
-                #in this case, also the output from plotalpha is wrong since the mask will be incorrectly projected!!!
-                print("Pearson correlation factor could not be calculated. The CC will be set to zero.")
-                CC = 0
-            #pearsonCC.append(scipy.stats.pearsonr(fofo_data.flatten(), data.flatten())[0])
-
-            #depending on the map-type, append the output-file of mapexplorer to the correct list
-            if mp == 'qFextr_map':
-                #append_if_file_exist(qFextr_map_expl_fles, os.path.abspath(map_expl_out))
-                qFextr_map_expl_fles.append([CC, pos, neg, pos+neg])
-            elif mp == 'qFgenick_map':
-                #append_if_file_exist(qFgenick_map_expl_fles, os.path.abspath(map_expl_out))
-                qFgenick_map_expl_fles.append([CC, pos, neg, pos+neg])
-            elif mp == 'qFextr_calc_map':
-                #append_if_file_exist(qFextr_calc_map_expl_fles, os.path.abspath(map_expl_out))
-                qFextr_calc_map_expl_fles.append([CC, pos, neg, pos+neg])
-            elif mp == 'kFextr_map':
-                #append_if_file_exist(kFextr_map_expl_fles, os.path.abspath(map_expl_out))
-                kFextr_map_expl_fles.append([CC, pos, neg, pos + neg])
-            elif mp == 'kFgenick_map':
-                #append_if_file_exist(kFgenick_map_expl_fles, os.path.abspath(map_expl_out))
-                kFgenick_map_expl_fles.append([CC, pos, neg, pos + neg])
-            elif mp == 'kFextr_calc_map':
-                #append_if_file_exist(kFextr_calc_map_expl_fles, os.path.abspath(map_expl_out))
-                kFextr_calc_map_expl_fles.append([CC, pos, neg, pos + neg])
-            elif mp == 'Fextr_map':
-                #append_if_file_exist(Fextr_map_expl_fles, os.path.abspath(map_expl_out))
-                Fextr_map_expl_fles.append([CC, pos, neg, pos + neg])
-            elif mp == 'Fgenick_map':
-                #append_if_file_exist(Fgenick_map_expl_fles, os.path.abspath(map_expl_out))
-                Fgenick_map_expl_fles.append([CC, pos, neg, pos + neg])
-            elif mp == 'Fextr_calc_map':
-                #append_if_file_exist(Fextr_calc_map_expl_fles, os.path.abspath(map_expl_out))
-                Fextr_calc_map_expl_fles.append([CC, pos, neg, pos + neg])
-            print("m%s-DFcalc map explored" % Fextr.maptype,file=log)
-            print("m%s-DFcalc map explored" % Fextr.maptype)
-
-            #In case of running in calm and curious:
-            #run refinement with phenix or refmac/coot
-            if (params.f_and_maps.fast_and_furious == False and params.refinement.run_refinement):
-                print("\n************Refinements************")
-                print("\n************Refinements************", file=log)
-                mtz_out, pdb_rec, pdb_real, pdb_rec_real = Fextr.refinements(reciprocal_space_refinement = params.refinement.reciprocal_space,
-                                                                real_space_refiment = params.refinement.real_space,
-                                                                pdb_in              = DH.pdb_in,
-                                                                additional          = DH.additional,
-                                                                ligands_list        = DH.extract_ligand_codes(),
-                                                                F_column_labels     = Fextr.FM.labels['data'],
-                                                                phenix_map_column_labels   = '%s,PHI%s' %(Fextr.FM.labels['map_coefs_map'],Fextr.FM.labels['map_coefs_map']),
-                                                                coot_map_column_labels     = '%s, PHI%s, %s, PHI%s' %(Fextr.FM.labels['map_coefs_map'],Fextr.FM.labels['map_coefs_map'],
-                                                                                                                Fextr.FM.labels['map_coefs_diff'], Fextr.FM.labels['map_coefs_diff']),
-                                                                scattering_table     = params.scattering_table,
-                                                                phenix_keywords      = params.refinement.phenix_keywords,
-                                                                refmac_keywords      = params.refinement.refmac_keywords)
-                
-                print("--------------", file=log)
-                #depending on the map-type, append the refinement output to the correct list
-                #this is ugly, TODO: make an object to store the results in a clean and transparant way
-                if mp == 'qFextr_map':
-                    append_if_file_exist(qFextr_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(qFextr_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(qFextr_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(qFextr_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'qFgenick_map':
-                    append_if_file_exist(qFgenick_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(qFgenick_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(qFgenick_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(qFgenick_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'qFextr_calc_map':
-                    append_if_file_exist(qFextr_calc_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(qFextr_calc_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(qFextr_calc_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(qFextr_calc_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'kFextr_map':
-                    append_if_file_exist(kFextr_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(kFextr_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(kFextr_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(kFextr_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'kFgenick_map':
-                    append_if_file_exist(kFgenick_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(kFgenick_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(kFgenick_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(kFgenick_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'kFextr_calc_map':
-                    append_if_file_exist(kFextr_calc_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(kFextr_calc_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(kFextr_calc_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(kFextr_calc_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'Fextr_map':
-                    append_if_file_exist(Fextr_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(Fextr_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(Fextr_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(Fextr_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'Fgenick_map':
-                    append_if_file_exist(Fgenick_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(Fgenick_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(Fgenick_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(Fgenick_realref_lst, os.path.abspath(pdb_real))
-                elif mp == 'Fextr_calc_map':
-                    append_if_file_exist(Fextr_calc_recref_mtz_lst, os.path.abspath(mtz_out))
-                    append_if_file_exist(Fextr_calc_recref_pdb_lst, os.path.abspath(pdb_rec))
-                    append_if_file_exist(Fextr_calc_recrealref_lst, os.path.abspath(pdb_rec_real))
-                    append_if_file_exist(Fextr_calc_realref_lst, os.path.abspath(pdb_real))
-                    
-            #fast_and_furious mode: no refinement, but need to keep track of structure factor files
-            elif params.f_and_maps.fast_and_furious:
-                append_if_file_exist(Fextr_mtz_lst, os.path.abspath(Fextr.F_name))
-
-            print("\n---> Results in %s" %(os.getcwd()), file=log)
-            print("------------------------------------", file=log)
-            print("\n---> Results in %s" %(os.getcwd()))
-            print("------------------------------------")
-            
-        ################################################################
-        #remove empty directories to avoid any confusion. secure because os.rmdir can only remove empty directories.
-        if len(os.listdir(new_dirpath_q)) == 0:
-            os.rmdir(new_dirpath_q)
-        if len(os.listdir(new_dirpath)) == 0:
-            os.rmdir(new_dirpath)
-        if len(os.listdir(new_dirpath_k)) == 0:
-            os.rmdir(new_dirpath_k)
-
-        #Go back to output directory and generate the plots from the pickle files
+    if occupancy_parallel_enabled(params.occupancies.parallel, params.occupancies.list_occ):
+        occupancy_results = run_parallel_occupancies(
+            params=params,
+            DH=DH,
+            FoFo=FoFo,
+            FoFo_type=FoFo_type,
+            final_maptypes=final_maptypes,
+            outdir=outdir,
+            outname=outname,
+            mask=mask,
+            fofo_data=fofo_data,
+        )
+        for occupancy_result in occupancy_results:
+            append_occupancy_result(map_results, occupancy_result)
         os.chdir(outdir)
         plot_Fextr_sigmas()
-        #plot_sigmas(maptype_lst=list(map(lambda x: re.sub(r"\_map$", "", x), final_maptypes)))
         plot_negative_reflections()
+    else:
+        ################################################################
+        #Loop over occupancies and calculate extrapolated structure factors
+        for occ in params.occupancies.list_occ:
+            occupancy_result = run_single_occupancy(
+                occ=occ,
+                params=params,
+                DH=DH,
+                FoFo=FoFo,
+                FoFo_type=FoFo_type,
+                final_maptypes=final_maptypes,
+                outdir=outdir,
+                outname=outname,
+                mask=mask,
+                fofo_data=fofo_data,
+                stats_outdir=outdir,
+            )
+            append_occupancy_result(map_results, occupancy_result)
+
+            #Go back to output directory and generate the plots from the pickle files
+            os.chdir(outdir)
+            plot_Fextr_sigmas()
+            plot_negative_reflections()
+
+    if qFextr_map:
+        qFextr_map_expl_fles = map_results['qFextr_map']['map_expl']
+        qFextr_recref_mtz_lst = map_results['qFextr_map']['recref_mtz']
+        qFextr_recref_pdb_lst = map_results['qFextr_map']['recref_pdb']
+        qFextr_realref_lst = map_results['qFextr_map']['realref']
+        qFextr_recrealref_lst = map_results['qFextr_map']['recrealref']
+    if kFextr_map:
+        kFextr_map_expl_fles = map_results['kFextr_map']['map_expl']
+        kFextr_recref_mtz_lst = map_results['kFextr_map']['recref_mtz']
+        kFextr_recref_pdb_lst = map_results['kFextr_map']['recref_pdb']
+        kFextr_realref_lst = map_results['kFextr_map']['realref']
+        kFextr_recrealref_lst = map_results['kFextr_map']['recrealref']
+    if Fextr_map:
+        Fextr_map_expl_fles = map_results['Fextr_map']['map_expl']
+        Fextr_recref_mtz_lst = map_results['Fextr_map']['recref_mtz']
+        Fextr_recref_pdb_lst = map_results['Fextr_map']['recref_pdb']
+        Fextr_recrealref_lst = map_results['Fextr_map']['recrealref']
+        Fextr_realref_lst = map_results['Fextr_map']['realref']
+    if qFgenick_map:
+        qFgenick_map_expl_fles = map_results['qFgenick_map']['map_expl']
+        qFgenick_recref_mtz_lst = map_results['qFgenick_map']['recref_mtz']
+        qFgenick_recref_pdb_lst = map_results['qFgenick_map']['recref_pdb']
+        qFgenick_realref_lst = map_results['qFgenick_map']['realref']
+        qFgenick_recrealref_lst = map_results['qFgenick_map']['recrealref']
+    if kFgenick_map:
+        kFgenick_map_expl_fles = map_results['kFgenick_map']['map_expl']
+        kFgenick_recref_mtz_lst = map_results['kFgenick_map']['recref_mtz']
+        kFgenick_recref_pdb_lst = map_results['kFgenick_map']['recref_pdb']
+        kFgenick_realref_lst = map_results['kFgenick_map']['realref']
+        kFgenick_recrealref_lst = map_results['kFgenick_map']['recrealref']
+    if Fgenick_map:
+        Fgenick_map_expl_fles = map_results['Fgenick_map']['map_expl']
+        Fgenick_recref_mtz_lst = map_results['Fgenick_map']['recref_mtz']
+        Fgenick_recref_pdb_lst = map_results['Fgenick_map']['recref_pdb']
+        Fgenick_realref_lst = map_results['Fgenick_map']['realref']
+        Fgenick_recrealref_lst = map_results['Fgenick_map']['recrealref']
+    if qFextr_calc_map:
+        qFextr_calc_map_expl_fles = map_results['qFextr_calc_map']['map_expl']
+        qFextr_calc_recref_mtz_lst = map_results['qFextr_calc_map']['recref_mtz']
+        qFextr_calc_recref_pdb_lst = map_results['qFextr_calc_map']['recref_pdb']
+        qFextr_calc_realref_lst = map_results['qFextr_calc_map']['realref']
+        qFextr_calc_recrealref_lst = map_results['qFextr_calc_map']['recrealref']
+    if kFextr_calc_map:
+        kFextr_calc_map_expl_fles = map_results['kFextr_calc_map']['map_expl']
+        kFextr_calc_recref_mtz_lst = map_results['kFextr_calc_map']['recref_mtz']
+        kFextr_calc_recref_pdb_lst = map_results['kFextr_calc_map']['recref_pdb']
+        kFextr_calc_realref_lst = map_results['kFextr_calc_map']['realref']
+        kFextr_calc_recrealref_lst = map_results['kFextr_calc_map']['recrealref']
+    if Fextr_calc_map:
+        Fextr_calc_map_expl_fles = map_results['Fextr_calc_map']['map_expl']
+        Fextr_calc_recref_mtz_lst = map_results['Fextr_calc_map']['recref_mtz']
+        Fextr_calc_recref_pdb_lst = map_results['Fextr_calc_map']['recref_pdb']
+        Fextr_calc_realref_lst = map_results['Fextr_calc_map']['realref']
+        Fextr_calc_recrealref_lst = map_results['Fextr_calc_map']['recrealref']
+    if params.f_and_maps.fast_and_furious:
+        Fextr_mtz_lst = []
+        for mp in final_maptypes:
+            Fextr_mtz_lst.extend(map_results[mp]['fextr_mtz'])
 
     #free some memory by deleting the fofo_map
     del fofo_data

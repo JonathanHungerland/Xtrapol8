@@ -71,6 +71,14 @@ occupancies{
         .type = floats(size_min=1, value_min=0, value_max=1)
         .help = List of occupancies to test (fractional). Will overwrite low_occ, high_occ and steps if defined.
         .expert_level = 0
+    parallel = *auto on off
+        .type = choice(multi=False)
+        .help = Run independent occupancy jobs in parallel. auto enables parallel execution when multiple occupancies are tested and the platform supports fork-based workers.
+        .expert_level = 0
+    max_parallel = 0
+        .type = int
+        .help = Maximum number of occupancies to run concurrently. Set to 0 to use as many workers as possible while keeping equal CPUs per occupancy.
+        .expert_level = 1
     }
 scaling{
     b_scaling = no isotropic *anisotropic 

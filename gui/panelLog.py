@@ -218,8 +218,16 @@ class TabLog(wx.Panel):
                 line = str(line)
         self.LogTextCtrl.WriteText(line)
         try:
+            state_match = re.search(
+                r"\[occupancy\s+([0-9.]+)\]\s+step:\s+\S+\s+(\S+)",
+                line,
+            )
+            current_step = self.LOG_STEPS[self.indexLOG]
+            line_matches_current_step = current_step in line
+            if current_step == self.LOG_STEPS_CORE[0] and state_match:
+                line_matches_current_step = True
 
-            if self.LOG_STEPS[self.indexLOG] in line:
+            if line_matches_current_step:
                 if self.indexLOG > 0:
                     self.buttons[self.LOG_IDX[self.indexLOG - 1]].OnNormal(None)
                 self.buttons[self.LOG_IDX[self.indexLOG]].OnHIGH(None)
@@ -228,10 +236,23 @@ class TabLog(wx.Panel):
                         r"CALCULATING\s+(\S+)\s+TYPE OF ESFAS AND MAPS FOR OCCUPANCY\s+([0-9.]+)",
                         line,
                     )
-                    if match:
+                    if not match:
+                        match = re.search(
+                            r"\[occupancy\s+([0-9.]+)\]\s+step:\s+\S+\s+(\S+)",
+                            line,
+                        )
+                        if match:
+                            occ, qftype = match.groups()
+                            caption = '%s - occ %s' % (qftype, occ)
+                            self.buttons[self.LOG_IDX[self.indexLOG]]._label2 = caption
+                    if match and "CALCULATING" in line:
                         qftype, occ = match.groups()
                         caption = '%s - occ %s' % (qftype, occ)
                         self.buttons[self.LOG_IDX[self.indexLOG]]._label2 = caption
+                elif state_match:
+                    occ, qftype = state_match.groups()
+                    caption = '%s - occ %s' % (qftype, occ)
+                    self.buttons[self.LOG_IDX[self.indexLOG]]._label2 = caption
 
                 if self.indexLOG < len(self.LOG_STEPS) - 1: self.indexLOG += 1
 
@@ -1294,4 +1315,3 @@ class TabOccResults(ScrolledPanel):
         self.occNfextrSizer.Show(self.best_occ_Static)
         self.best_occ_Static.SetLabel("best estimation @ %s"%self.best_occ[fextr])
         self.finished = True
-

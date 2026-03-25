@@ -43,6 +43,8 @@ class GuiSourceRegressionTests(unittest.TestCase):
                 [],
                 f"Deprecated API regex {pattern!r} reappeared in {offenders}",
             )
+        ddm_text = (REPO_ROOT / "ddm.py").read_text()
+        self.assertNotIn("df_chain.append(", ddm_text)
 
     def test_wx_pubsub_import_is_confined_to_compat_layer(self):
         """Covers direct deprecated wx pubsub imports so they stay isolated in the fallback shim."""
@@ -180,6 +182,25 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertNotIn("refinement.main.nproc=4", phenix_refinements)
         self.assertNotIn(" nproc=4 ", phenix_refinements)
         self.assertNotIn("refinement.main.nproc=4", refiner)
+
+    def test_occupancies_phil_exposes_parallel_controls(self):
+        """Covers the occupancy scheduler knobs so worker parallelism stays user-visible and configurable."""
+        text = (REPO_ROOT / "master.py").read_text()
+        self.assertIn("parallel = *auto on off", text)
+        self.assertIn("max_parallel = 0", text)
+
+    def test_parallel_occupancy_workers_write_separate_logs_and_preserve_gui_progress_markers(self):
+        """Covers parallel occupancy execution so worker logs stay separate while the main log keeps GUI progress markers."""
+        fextr_text = (REPO_ROOT / "Fextr.py").read_text()
+        panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn('occupancy_{:.3f}_Xtrapol8.log', fextr_text)
+        self.assertIn("def redirect_process_output(log_path):", fextr_text)
+        self.assertIn("os.dup2(worker_log.fileno(), 1)", fextr_text)
+        self.assertIn("os.dup2(worker_log.fileno(), 2)", fextr_text)
+        self.assertIn("flush_output_streams()", fextr_text)
+        self.assertIn('return "[occupancy {:.3f}] step: {} {}".format(occ, step, maptype)', fextr_text)
+        self.assertIn('ctx.Process(target=occupancy_worker_main', fextr_text)
+        self.assertIn(r'r"\[occupancy\s+([0-9.]+)\]\s+step:\s+\S+\s+(\S+)"', panel_log_text)
 
 
 if __name__ == "__main__":

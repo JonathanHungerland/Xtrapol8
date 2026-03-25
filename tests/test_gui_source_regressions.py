@@ -216,6 +216,15 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("with_worker_suffix('launch_dm.sh', self.worker_id)", refmac_text)
         self.assertIn('with_worker_suffix("fft.log", self.worker_id)', refmac_text)
 
+    def test_fextr_overlaps_direct_real_space_with_reciprocal_branch(self):
+        """Covers the refinement branch split so the direct real-space run can overlap reciprocal/DM refinement."""
+        fextr_text = (REPO_ROOT / "Fextr.py").read_text()
+        self.assertIn("from concurrent.futures import ThreadPoolExecutor", fextr_text)
+        self.assertIn("def run_direct_real_space_refinement():", fextr_text)
+        self.assertIn("with ThreadPoolExecutor(max_workers=2) as branch_pool:", fextr_text)
+        self.assertIn("direct_real_space = branch_pool.submit(run_direct_real_space_refinement)", fextr_text)
+        self.assertIn("pdb_out_real = direct_real_space.result()", fextr_text)
+
 
 if __name__ == "__main__":
     unittest.main()

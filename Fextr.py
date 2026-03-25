@@ -71,6 +71,7 @@ TODO:
 - ddm with linear scale / sum of differences instead of plotting for each atom
 """
 from __future__ import division, print_function
+from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import re
 import os
@@ -1341,84 +1342,91 @@ class Fextrapolate(object):
             column_labels = coot_map_column_labels
             default_column_labels = '2FOFCWT, PH2FOFCWT, FOFCWT, PHFOFCWT'
 
-            
-        print("RECIPROCAL SPACE REFINEMENT WITH %s AND %s" %(mtz_F, pdb_in))
-        mtz_out_rec, pdb_out_rec = reciprocal.reciprocal_space_refinement()
-        print("Output reciprocal space refinement:", file=log)
-        print("----------------")
-        print("Output reciprocal space refinement:")
-        if os.path.isfile(pdb_out_rec):
-            print("    pdb-file: %s"%(pdb_out_rec), file=log)
-            print("    pdb-file: %s"%(pdb_out_rec))
-        else:
-            print("    pdb-file not found, %s incorrectly returned" %(pdb_in), file=log)
-            print("    pdb-file not found, %s incorrectly returned" %(pdb_in))
-            pdb_out_rec = pdb_in
-        if os.path.isfile(mtz_out_rec):
-            print("    mtz-file: %s"%(mtz_out_rec), file=log)
-            print("    mtz-file: %s"%(mtz_out_rec))
-        else:
-            print("    mtz-file not found. Refinement failed.", file=log)
-            print("    mtz-file not found. Refinement failed.")
-        print("----------------")
-        
-        if density_modification:
-            print("DENSITY MODIFICATION")
-            # mtz_dm = ref.phenix_density_modification(mtz_out_rec, pdb_out_rec)
-            mtz_dm = reciprocal.ccp4_dm(pdb_out_rec, combine, cycles)
-            print("Output density modification:", file=log)
-            print("Output density modification:")
-            if os.path.isfile(mtz_dm):
-                print("    mtz-file: %s"%(mtz_dm), file=log)
-                print("    mtz-file: %s" % (mtz_dm))
+        def run_direct_real_space_refinement():
+            print("REAL SPACE REFINEMENT WITH %s AND %s" %(mtz_map, pdb_in))
+            pdb_out_real = real.real_space_refinement_mtz(mtz_map, pdb_in, column_labels)
+            print("Output real space refinement:", file=log)
+            print("----------------")
+            print("Output real space refinement:")
+            if os.path.isfile(pdb_out_real):
+                print("    pdb-file: %s"%(pdb_out_real), file=log)
+                print("    pdb-file: %s"%(pdb_out_real))
             else:
-                print("    mtz-file not found. Density modification failed.", file=log)
-                print("    mtz-file not found. Density modification failed.")
+                print("    pdb-file not found, %s incorrectly returned" %(pdb_in), file=log)
+                print("    pdb-file not found, %s incorrectly returned" %(pdb_in))
+                pdb_out_real = pdb_in
+            print("----------------")
+            return pdb_out_real
 
-        print("REAL SPACE REFINEMENT WITH %s AND %s" %(mtz_map, pdb_in))
-        pdb_out_real = real.real_space_refinement_mtz(mtz_map, pdb_in, column_labels)
-        print("Output real space refinement:", file=log)
-        print("----------------")
-        print("Output real space refinement:")
-        if os.path.isfile(pdb_out_real):
-            print("    pdb-file: %s"%(pdb_out_real), file=log)
-            print("    pdb-file: %s"%(pdb_out_real))
-        else:
-            print("    pdb-file not found, %s incorrectly returned" %(pdb_in), file=log)
-            print("    pdb-file not found, %s incorrectly returned" %(pdb_in))
-            pdb_out_real = pdb_in
-        print("----------------")
+        with ThreadPoolExecutor(max_workers=2) as branch_pool:
+            direct_real_space = branch_pool.submit(run_direct_real_space_refinement)
 
-        if (density_modification and os.path.isfile(mtz_dm)):
-            ccp4_dm = re.sub(r".mtz$", ".ccp4", mtz_dm)
-            _, high_res = real.get_mtz_resolution(mtz_dm)
-            print("REAL SPACE REFINEMENT WITH %s AND %s" %(ccp4_dm, pdb_out_rec))
-            pdb_out_rec_real = real.real_space_refinement_ccp4(ccp4_dm, pdb_out_rec, high_res)
-            print("Output real space refinement after reciprocal space refinement:", file=log)
+            print("RECIPROCAL SPACE REFINEMENT WITH %s AND %s" %(mtz_F, pdb_in))
+            mtz_out_rec, pdb_out_rec = reciprocal.reciprocal_space_refinement()
+            print("Output reciprocal space refinement:", file=log)
             print("----------------")
-            print("Output real space refinement after reciprocal space refinement:")
-            if os.path.isfile(pdb_out_rec_real):
-                print("    pdb-file: %s"%(pdb_out_rec_real), file=log)
-                print("    pdb-file: %s"%(pdb_out_rec_real))
+            print("Output reciprocal space refinement:")
+            if os.path.isfile(pdb_out_rec):
+                print("    pdb-file: %s"%(pdb_out_rec), file=log)
+                print("    pdb-file: %s"%(pdb_out_rec))
             else:
-                print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec), file=log)
-                print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec))
-                pdb_out_rec_real = pdb_out_rec
-            print("----------------")
-        else:
-            print("REAL SPACE REFINEMENT WITH %s AND %s" %(mtz_out_rec, pdb_out_rec))
-            pdb_out_rec_real = real.real_space_refinement_mtz(mtz_out_rec, pdb_out_rec, default_column_labels)
-            print("Output real space refinement after reciprocal space refinement:", file=log)
-            print("----------------")
-            print("Output real space refinement after reciprocal space refinement:")
-            if os.path.isfile(pdb_out_rec_real):
-                print("    pdb-file: %s"%(pdb_out_rec_real), file=log)
-                print("    pdb-file: %s"%(pdb_out_rec_real))
+                print("    pdb-file not found, %s incorrectly returned" %(pdb_in), file=log)
+                print("    pdb-file not found, %s incorrectly returned" %(pdb_in))
+                pdb_out_rec = pdb_in
+            if os.path.isfile(mtz_out_rec):
+                print("    mtz-file: %s"%(mtz_out_rec), file=log)
+                print("    mtz-file: %s"%(mtz_out_rec))
             else:
-                print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec), file=log)
-                print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec))
-                pdb_out_rec_real = pdb_out_rec
+                print("    mtz-file not found. Refinement failed.", file=log)
+                print("    mtz-file not found. Refinement failed.")
             print("----------------")
+
+            mtz_dm = None
+            if density_modification:
+                print("DENSITY MODIFICATION")
+                # mtz_dm = ref.phenix_density_modification(mtz_out_rec, pdb_out_rec)
+                mtz_dm = reciprocal.ccp4_dm(pdb_out_rec, combine, cycles)
+                print("Output density modification:", file=log)
+                print("Output density modification:")
+                if os.path.isfile(mtz_dm):
+                    print("    mtz-file: %s"%(mtz_dm), file=log)
+                    print("    mtz-file: %s" % (mtz_dm))
+                else:
+                    print("    mtz-file not found. Density modification failed.", file=log)
+                    print("    mtz-file not found. Density modification failed.")
+
+            if (density_modification and os.path.isfile(mtz_dm)):
+                ccp4_dm = re.sub(r".mtz$", ".ccp4", mtz_dm)
+                _, high_res = real.get_mtz_resolution(mtz_dm)
+                print("REAL SPACE REFINEMENT WITH %s AND %s" %(ccp4_dm, pdb_out_rec))
+                pdb_out_rec_real = real.real_space_refinement_ccp4(ccp4_dm, pdb_out_rec, high_res)
+                print("Output real space refinement after reciprocal space refinement:", file=log)
+                print("----------------")
+                print("Output real space refinement after reciprocal space refinement:")
+                if os.path.isfile(pdb_out_rec_real):
+                    print("    pdb-file: %s"%(pdb_out_rec_real), file=log)
+                    print("    pdb-file: %s"%(pdb_out_rec_real))
+                else:
+                    print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec), file=log)
+                    print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec))
+                    pdb_out_rec_real = pdb_out_rec
+                print("----------------")
+            else:
+                print("REAL SPACE REFINEMENT WITH %s AND %s" %(mtz_out_rec, pdb_out_rec))
+                pdb_out_rec_real = real.real_space_refinement_mtz(mtz_out_rec, pdb_out_rec, default_column_labels)
+                print("Output real space refinement after reciprocal space refinement:", file=log)
+                print("----------------")
+                print("Output real space refinement after reciprocal space refinement:")
+                if os.path.isfile(pdb_out_rec_real):
+                    print("    pdb-file: %s"%(pdb_out_rec_real), file=log)
+                    print("    pdb-file: %s"%(pdb_out_rec_real))
+                else:
+                    print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec), file=log)
+                    print("    pdb-file not found, %s incorrectly returned" %(pdb_out_rec))
+                    pdb_out_rec_real = pdb_out_rec
+                print("----------------")
+
+            pdb_out_real = direct_real_space.result()
                
         return mtz_out_rec, pdb_out_rec, pdb_out_real, pdb_out_rec_real
         

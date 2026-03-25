@@ -39,6 +39,24 @@ class ParallelUtilsTests(unittest.TestCase):
         module = self.load_module()
         self.assertEqual(module.plan_equal_cpu_workers(6, total_cpus=64, max_workers=3), (3, 21))
 
+    def test_with_worker_suffix_inserts_worker_id_before_extension(self):
+        module = self.load_module()
+        self.assertEqual(module.with_worker_suffix("launch_dm.sh", 3), "launch_dm_worker3.sh")
+        self.assertEqual(module.with_worker_suffix("/tmp/map.params", 7), "/tmp/map_worker7.params")
+        self.assertEqual(module.with_worker_suffix("fft.log", None), "fft.log")
+
+    def test_plan_parallel_occupancy_maps_prefers_full_map_parallelism(self):
+        module = self.load_module()
+        self.assertEqual(module.plan_parallel_occupancy_maps(3, 2, total_cpus=4), [2, 1, 1])
+
+    def test_plan_parallel_occupancy_maps_scales_per_map_budget(self):
+        module = self.load_module()
+        self.assertEqual(module.plan_parallel_occupancy_maps(6, 2, total_cpus=64), [2, 2, 2, 2, 2, 2])
+
+    def test_plan_parallel_occupancy_maps_honors_max_parallel_occupancies(self):
+        module = self.load_module()
+        self.assertEqual(module.plan_parallel_occupancy_maps(6, 2, total_cpus=64, max_occupancies=3), [2, 2, 2])
+
 
 if __name__ == "__main__":
     unittest.main()

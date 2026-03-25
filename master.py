@@ -77,7 +77,7 @@ occupancies{
         .expert_level = 0
     max_parallel = 0
         .type = int
-        .help = Maximum number of occupancies to run concurrently. Set to 0 to use as many workers as possible while keeping equal CPUs per occupancy.
+        .help = Maximum number of parallel occupancy/group jobs to run concurrently. Set to 0 to use as many workers as possible.
         .expert_level = 1
     }
 scaling{

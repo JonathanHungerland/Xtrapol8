@@ -84,3 +84,81 @@ def plan_equal_cpu_workers(job_count, total_cpus=None, max_workers=0):
 
     nproc_per_worker = max(1, cpus // worker_count)
     return worker_count, nproc_per_worker
+
+
+def with_worker_suffix(path, worker_id):
+    """
+    Add a worker suffix before the filename extension.
+    """
+    if worker_id in (None, ""):
+        return path
+    root, ext = os.path.splitext(path)
+    return "{}_worker{}{}".format(root, worker_id, ext)
+
+
+def plan_parallel_occupancy_maps(
+    occupancy_count,
+    map_count_per_occupancy,
+    total_cpus=None,
+    max_occupancies=0,
+):
+    """
+    Plan concurrent occupancy workers by budgeting one CPU per active map.
+
+    Returns a list of per-occupancy CPU budgets for the active occupancy slots.
+    Each active occupancy receives at least one CPU. Remaining CPUs are
+    distributed across the active occupancies until each one can run all of its
+    map types concurrently or the CPU budget is exhausted.
+    """
+    try:
+        occupancies = int(occupancy_count)
+    except (TypeError, ValueError):
+        occupancies = 0
+    occupancies = max(0, occupancies)
+    if occupancies == 0:
+        return 0, 0, 0
+
+    try:
+        maps_per_occupancy = int(map_count_per_occupancy)
+    except (TypeError, ValueError):
+        maps_per_occupancy = 0
+    maps_per_occupancy = max(1, maps_per_occupancy)
+
+    if total_cpus is None:
+        cpus = available_cpu_count()
+    else:
+        try:
+            cpus = int(total_cpus)
+        except (TypeError, ValueError):
+            cpus = available_cpu_count()
+    cpus = max(1, cpus)
+
+    try:
+        requested_occupancies = int(max_occupancies)
+    except (TypeError, ValueError):
+        requested_occupancies = 0
+
+    if requested_occupancies <= 0:
+        requested_occupancies = occupancies
+    else:
+        requested_occupancies = min(occupancies, requested_occupancies)
+
+    occupancy_worker_count = min(requested_occupancies, cpus)
+    occupancy_worker_count = max(1, occupancy_worker_count)
+
+    budgets = [1] * occupancy_worker_count
+    remaining = cpus - occupancy_worker_count
+    while remaining > 0:
+        progressed = False
+        for index in range(occupancy_worker_count):
+            if budgets[index] >= maps_per_occupancy:
+                continue
+            budgets[index] += 1
+            remaining -= 1
+            progressed = True
+            if remaining == 0:
+                break
+        if not progressed:
+            break
+
+    return budgets

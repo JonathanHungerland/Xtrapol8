@@ -29,7 +29,7 @@ from mmtbx.scaling.matthews import p_vm_calculator
 from libtbx import adopt_init_args
 from cctbx import miller
 from Fextr_utils import get_name, get_phenix_version
-from parallel_utils import resolve_nproc
+from parallel_utils import resolve_nproc, with_worker_suffix
 import subprocess
 from iotbx.file_reader import any_file
 
@@ -49,6 +49,7 @@ class Phenix_reciprocal_space_refinement(object):
                  map_sharpening                 = False,
                  scattering_table               = "n_gaussian",
                  nproc                          = 0,
+                 worker_id                      = None,
                  weight_sel_crit                = {},
                  additional_reciprocal_keywords = [],
                  log                            = sys.stdout):
@@ -166,7 +167,7 @@ class Phenix_reciprocal_space_refinement(object):
         return vm_calc.solc(vm=vm_calc.vm(copies=1))
     
     def generate_map_params_bsharpening(self):
-        param_file = "map.params"
+        param_file = with_worker_suffix("map.params", self.worker_id)
         o = open(param_file,"w")
         o.write('refinement {\n\
   electron_density_maps {\n\
@@ -251,7 +252,7 @@ class Phenix_reciprocal_space_refinement(object):
         pdb_out = "%s_for_dm.pdb" % (get_name(self.mtz_in))
         log_file = "%s_refmac_for_dm.log" % (get_name(self.mtz_in))
 
-        script_out = 'launch_refmac_for_dm.sh'
+        script_out = with_worker_suffix('launch_refmac_for_dm.sh', self.worker_id)
         i = open(script_out, 'w')
         i.write("#!/bin/sh\n\
 refmac5 XYZIN %s HKLIN %s XYZOUT %s HKLOUT %s %s<<eof > %s \n\
@@ -281,7 +282,7 @@ eof" % (pdb_in, self.mtz_in, pdb_out, mtz_out, additional_lines, log_file, self.
         """
         solc = self.get_solvent_content()
 
-        script_out = 'launch_dm.sh'
+        script_out = with_worker_suffix('launch_dm.sh', self.worker_id)
         i = open(script_out, 'w')
         i.write('#!/bin/sh \n\
 \n\
@@ -297,10 +298,12 @@ eor\n' % (mtz_in, mtz_out, log_file, solc, combine, cycles, self.F_column_labels
 
         ccp4_map_name = re.sub(r".mtz$", ".ccp4", mtz_out)
 
+        fft_log = with_worker_suffix("fft.log", self.worker_id)
+
         i.write('#generate map in ccp4 format\n\
-fft hklin %s mapout %s <<eof > fft.log\n\
+fft hklin %s mapout %s <<eof > %s\n\
 LABI F1=FDM PHI=PHIDM\n\
-eof' % (mtz_out, ccp4_map_name))
+eof' % (mtz_out, ccp4_map_name, fft_log))
 
         i.close()
         os.system("chmod +x %s" % (script_out))
@@ -327,6 +330,7 @@ class Phenix_real_space_refinement(object):
     def __init__(self,
                  real_cycles                    = 5,
                  nproc                          = 0,
+                 worker_id                      = None,
                  additional                     = '',
                  additional_real_keywords       = [],
                  scattering_table               = "n_gaussian",

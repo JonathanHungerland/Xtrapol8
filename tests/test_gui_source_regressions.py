@@ -189,18 +189,32 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("parallel = *auto on off", text)
         self.assertIn("max_parallel = 0", text)
 
-    def test_parallel_occupancy_workers_write_separate_logs_and_preserve_gui_progress_markers(self):
-        """Covers parallel occupancy execution so worker logs stay separate while the main log keeps GUI progress markers."""
+    def test_parallel_group_workers_write_separate_logs_and_preserve_gui_progress_markers(self):
+        """Covers parallel group execution so worker logs stay separate while the main log keeps GUI progress markers."""
         fextr_text = (REPO_ROOT / "Fextr.py").read_text()
         panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
-        self.assertIn('occupancy_{:.3f}_Xtrapol8.log', fextr_text)
+        self.assertIn('{}_occupancy_{:.3f}_Xtrapol8.log', fextr_text)
         self.assertIn("def redirect_process_output(log_path):", fextr_text)
         self.assertIn("os.dup2(worker_log.fileno(), 1)", fextr_text)
         self.assertIn("os.dup2(worker_log.fileno(), 2)", fextr_text)
         self.assertIn("flush_output_streams()", fextr_text)
         self.assertIn('return "[occupancy {:.3f}] step: {} {}".format(occ, step, maptype)', fextr_text)
-        self.assertIn('ctx.Process(target=occupancy_worker_main', fextr_text)
-        self.assertIn(r'r"\[occupancy\s+([0-9.]+)\]\s+step:\s+\S+\s+(\S+)"', panel_log_text)
+        self.assertIn('return "[occupancy {:.3f}][{}] step: {} {}".format(occ, group_name, step, maptype)', fextr_text)
+        self.assertIn('def group_job_worker_main(', fextr_text)
+        self.assertIn('ctx.Process(target=group_job_worker_main', fextr_text)
+        self.assertIn(r'r"\[occupancy\s+([0-9.]+)\](?:\[[^\]]+\])?\s+step:\s+\S+\s+(\S+)"', panel_log_text)
+
+    def test_parallel_refinement_helpers_suffix_fixed_worker_files(self):
+        """Covers per-maptype workers so cwd-fixed helper files stay unique without changing final output layout."""
+        phenix_text = (REPO_ROOT / "phenix_refinements.py").read_text()
+        refmac_text = (REPO_ROOT / "ccp4_refmac.py").read_text()
+        self.assertIn('with_worker_suffix("map.params", self.worker_id)', phenix_text)
+        self.assertIn("with_worker_suffix('launch_refmac_for_dm.sh', self.worker_id)", phenix_text)
+        self.assertIn("with_worker_suffix('launch_dm.sh', self.worker_id)", phenix_text)
+        self.assertIn('with_worker_suffix("fft.log", self.worker_id)', phenix_text)
+        self.assertIn("with_worker_suffix('launch_refmac.sh', self.worker_id)", refmac_text)
+        self.assertIn("with_worker_suffix('launch_dm.sh', self.worker_id)", refmac_text)
+        self.assertIn('with_worker_suffix("fft.log", self.worker_id)', refmac_text)
 
 
 if __name__ == "__main__":

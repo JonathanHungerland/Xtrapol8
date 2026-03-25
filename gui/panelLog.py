@@ -219,7 +219,7 @@ class TabLog(wx.Panel):
         self.LogTextCtrl.WriteText(line)
         try:
             state_match = re.search(
-                r"\[occupancy\s+([0-9.]+)\]\s+step:\s+\S+\s+(\S+)",
+                r"\[occupancy\s+([0-9.]+)\](?:\[[^\]]+\])?\s+step:\s+\S+\s+(\S+)",
                 line,
             )
             current_step = self.LOG_STEPS[self.indexLOG]
@@ -238,7 +238,7 @@ class TabLog(wx.Panel):
                     )
                     if not match:
                         match = re.search(
-                            r"\[occupancy\s+([0-9.]+)\]\s+step:\s+\S+\s+(\S+)",
+                            r"\[occupancy\s+([0-9.]+)\](?:\[[^\]]+\])?\s+step:\s+\S+\s+(\S+)",
                             line,
                         )
                         if match:

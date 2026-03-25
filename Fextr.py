@@ -123,7 +123,10 @@ from distance_analysis import *
 from Fextr_utils import *
 import version
 from master import master_phil
-from parallel_utils import plan_equal_cpu_workers, supports_fork_parallelism
+from parallel_utils import (
+    resolve_nproc,
+    supports_fork_parallelism,
+)
 
 
 class SymManager(symmetry.manager):
@@ -1244,6 +1247,7 @@ class Fextrapolate(object):
                    phenix_map_column_labels='2FOFCWT,PH2FOFCWT',
                    coot_map_column_labels='2FOFCWT, PH2FOFCWT, FOFCWT, PHFOFCWT',
                    scattering_table= "n_gaussian",
+                   worker_id=None,
                    phenix_keywords = {},
                    refmac_keywords = {}):
         
@@ -1284,6 +1288,7 @@ class Fextrapolate(object):
                  map_sharpening     = phenix_keywords.map_sharpening.map_sharpening,
                  scattering_table   = scattering_table,
                  weight_sel_crit    = phenix_keywords.target_weights.weight_selection_criteria,
+                 worker_id          = worker_id,
                  additional_reciprocal_keywords = phenix_keywords.additional_reciprocal_space_keywords,
                  log                = log)
             density_modification = phenix_keywords.density_modification.density_modification
@@ -1312,6 +1317,7 @@ class Fextrapolate(object):
                  jelly_body_sigma      = refmac_keywords.restraints.jelly_body_sigma,
                  jelly_body_additional_restraints = refmac_keywords.restraints.jelly_body_additional_restraints,
                  map_sharpening        = refmac_keywords.map_sharpening.map_sharpening,
+                 worker_id             = worker_id,
                  additional_reciprocal_keywords = refmac_keywords.additional_refmac_keywords)
             density_modification = refmac_keywords.density_modification.density_modification
             combine = refmac_keywords.density_modification.combine
@@ -1323,6 +1329,7 @@ class Fextrapolate(object):
             real = phenix_refinements.Phenix_real_space_refinement(
                 real_cycles              = phenix_keywords.real_space_refine.cycles,
                 nproc                    = phenix_keywords.real_space_refine.nproc,
+                worker_id                = worker_id,
                 additional               = additional,
                 scattering_table         = scattering_table,
                 additional_real_keywords = phenix_keywords.additional_real_space_keywords,
@@ -1990,7 +1997,7 @@ class Filesandmaps(object):
     #new_name = log.name[:index]+".log"
     #os.rename(log.name, new_name)
 
-_OCCUPANCY_WORKER_CONTEXT = None
+_GROUP_JOB_WORKER_CONTEXT = None
 
 
 def print_to_main_log(message):
@@ -2019,8 +2026,33 @@ def redirect_process_output(log_path):
     return worker_log
 
 
-def occupancy_parallel_enabled(parallel_mode, occupancies):
-    if len(occupancies) <= 1:
+def build_parallel_group_jobs(occupancies, final_maptypes):
+    grouped_maptypes = []
+    q_maptypes = [mp for mp in final_maptypes if mp.startswith("q")]
+    if q_maptypes:
+        grouped_maptypes.append(("qweight", q_maptypes))
+    k_maptypes = [mp for mp in final_maptypes if mp.startswith("k")]
+    if k_maptypes:
+        grouped_maptypes.append(("kweight", k_maptypes))
+    unweighted_maptypes = [mp for mp in final_maptypes if not mp.startswith(("q", "k"))]
+    if unweighted_maptypes:
+        grouped_maptypes.append(("occupancy", unweighted_maptypes))
+
+    jobs = []
+    for occ in occupancies:
+        for group_name, maptypes in grouped_maptypes:
+            jobs.append(
+                {
+                    "occ": occ,
+                    "group": group_name,
+                    "maptypes": maptypes,
+                }
+            )
+    return jobs
+
+
+def occupancy_parallel_enabled(parallel_mode, occupancies, final_maptypes):
+    if len(build_parallel_group_jobs(occupancies, final_maptypes)) <= 1:
         return False
     if parallel_mode == "off":
         return False
@@ -2029,12 +2061,12 @@ def occupancy_parallel_enabled(parallel_mode, occupancies):
     return supports_fork_parallelism()
 
 
-def occupancy_worker_log_path(outdir, occ):
-    return os.path.join(outdir, "occupancy_{:.3f}_Xtrapol8.log".format(occ))
+def group_job_log_path(outdir, occ, group_name):
+    return os.path.join(outdir, "{}_occupancy_{:.3f}_Xtrapol8.log".format(group_name, occ))
 
 
-def occupancy_worker_stats_dir(outdir, occ):
-    return os.path.join(outdir, ".occupancy_parallel", "occupancy_{:.3f}".format(occ))
+def group_job_stats_dir(outdir, occ, group_name):
+    return os.path.join(outdir, ".parallel_groups", "{}_occupancy_{:.3f}".format(group_name, occ))
 
 
 def initialize_maptype_results(final_maptypes, fofo_ref, pdb_in):
@@ -2075,8 +2107,177 @@ def merge_pickle_streams(output_path, input_paths):
                         break
 
 
-def format_occupancy_step_message(occ, step, maptype):
-    return "[occupancy {:.3f}] step: {} {}".format(occ, step, maptype)
+def format_occupancy_step_message(occ, step, maptype, group_name=None):
+    if group_name is None:
+        return "[occupancy {:.3f}] step: {} {}".format(occ, step, maptype)
+    return "[occupancy {:.3f}][{}] step: {} {}".format(occ, group_name, step, maptype)
+
+
+def run_single_maptype(
+    mp,
+    occ,
+    params,
+    DH,
+    FoFo,
+    FoFo_type,
+    Fextr,
+    new_dirpath_q,
+    new_dirpath_k,
+    new_dirpath,
+    mask,
+    fofo_data,
+    stats_outdir,
+    progress=None,
+    warning=None,
+    worker_id=None,
+):
+    if not os.path.isdir(stats_outdir):
+        os.makedirs(stats_outdir)
+
+    mp_result = {
+        "map_expl": None,
+        "recref_mtz": "",
+        "recref_pdb": "",
+        "realref": "",
+        "recrealref": "",
+        "fextr_mtz": "",
+    }
+    mp_name = mp.split("_map")[0]
+    if progress is not None:
+        progress("calculate", mp_name.upper())
+    print(mp)
+
+    if mp in ("qFextr_map", "qFgenick_map", "qFextr_calc_map"):
+        os.chdir(new_dirpath_q)
+    elif mp in ("kFextr_map", "kFgenick_map", "kFextr_calc_map"):
+        os.chdir(new_dirpath_k)
+    else:
+        os.chdir(new_dirpath)
+
+    if mp == "qFextr_map":
+        Fextr.fextr(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "qFgenick_map":
+        Fextr.fgenick(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "qFextr_calc_map":
+        Fextr.fextr_calc(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "kFextr_map":
+        Fextr.fextr(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "kFgenick_map":
+        Fextr.fgenick(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "kFextr_calc_map":
+        Fextr.fextr_calc(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "Fextr_map":
+        Fextr.fextr(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "Fgenick_map":
+        Fextr.fgenick(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
+    elif mp == "Fextr_calc_map":
+        Fextr.fextr_calc(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
+        get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
+        compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
+    else:
+        print("%s not recognised as extrapolated map type" % mp)
+
+    print("\n************Map explorer************", file=log)
+    print("\n************Map explorer************")
+    data = ccp4_map.map_reader(file_name=Fextr.ccp4_name_FoFc).data.as_numpy_array()
+    pos = 0
+    neg = 0
+
+    for i in range(mask.shape[1]):
+        tmp = data[mask[0, i]].sum()
+        if tmp > 0:
+            pos += tmp
+        else:
+            neg -= tmp
+
+    try:
+        CC = pearsonr(fofo_data.flatten(), data.flatten())[0]
+    except ValueError:
+        print("Pearson correlation factor could not be calculated. The CC will be set to zero.")
+        if warning is not None:
+            warning(
+                "Pearson correlation factor could not be calculated for {}. The CC was set to zero.".format(
+                    mp_name,
+                )
+            )
+        CC = 0
+
+    mp_result["map_expl"] = [CC, pos, neg, pos + neg]
+    print("m%s-DFcalc map explored" % Fextr.maptype, file=log)
+    print("m%s-DFcalc map explored" % Fextr.maptype)
+
+    if (params.f_and_maps.fast_and_furious is False and params.refinement.run_refinement):
+        if progress is not None:
+            progress("refine", mp_name.upper())
+        print("\n************Refinements************")
+        print("\n************Refinements************", file=log)
+        mtz_out, pdb_rec, pdb_real, pdb_rec_real = Fextr.refinements(
+            reciprocal_space_refinement=params.refinement.reciprocal_space,
+            real_space_refiment=params.refinement.real_space,
+            pdb_in=DH.pdb_in,
+            additional=DH.additional,
+            ligands_list=DH.extract_ligand_codes(),
+            F_column_labels=Fextr.FM.labels["data"],
+            phenix_map_column_labels="%s,PHI%s" % (Fextr.FM.labels["map_coefs_map"], Fextr.FM.labels["map_coefs_map"]),
+            coot_map_column_labels="%s, PHI%s, %s, PHI%s"
+            % (
+                Fextr.FM.labels["map_coefs_map"],
+                Fextr.FM.labels["map_coefs_map"],
+                Fextr.FM.labels["map_coefs_diff"],
+                Fextr.FM.labels["map_coefs_diff"],
+            ),
+            scattering_table=params.scattering_table,
+            worker_id=worker_id,
+            phenix_keywords=params.refinement.phenix_keywords,
+            refmac_keywords=params.refinement.refmac_keywords,
+        )
+
+        print("--------------", file=log)
+        mp_result["recref_mtz"] = os.path.abspath(mtz_out)
+        mp_result["recref_pdb"] = os.path.abspath(pdb_rec)
+        mp_result["recrealref"] = os.path.abspath(pdb_rec_real)
+        mp_result["realref"] = os.path.abspath(pdb_real)
+        if warning is not None:
+            for label, path in (
+                ("reciprocal mtz", mp_result["recref_mtz"]),
+                ("reciprocal pdb", mp_result["recref_pdb"]),
+                ("real-space pdb", mp_result["realref"]),
+                ("reciprocal+real pdb", mp_result["recrealref"]),
+            ):
+                if os.path.isfile(path) is False:
+                    warning("ERROR missing {} output after {}".format(label, mp_name))
+    elif params.f_and_maps.fast_and_furious:
+        mp_result["fextr_mtz"] = os.path.abspath(Fextr.F_name)
+        if warning is not None and os.path.isfile(mp_result["fextr_mtz"]) is False:
+            warning("ERROR missing extrapolated mtz after {}".format(mp_name))
+
+    print("\n---> Results in %s" % (os.getcwd()), file=log)
+    print("------------------------------------", file=log)
+    print("\n---> Results in %s" % (os.getcwd()))
+    print("------------------------------------")
+
+    return {
+        "mp": mp,
+        "map_result": mp_result,
+        "stats_pickle": os.path.join(stats_outdir, "Fextr_binstats.pickle"),
+        "negative_pickle": os.path.join(stats_outdir, "Fextr_negative.pickle"),
+    }
 
 
 def run_single_occupancy(
@@ -2093,6 +2294,8 @@ def run_single_occupancy(
     stats_outdir=None,
     progress=None,
     warning=None,
+    event_queue=None,
+    cpu_budget=None,
 ):
     if stats_outdir is None:
         stats_outdir = outdir
@@ -2127,148 +2330,27 @@ def run_single_occupancy(
     new_dirpath_q, new_dirpath_k, new_dirpath = Fextr.create_output_dirs(outdir)
 
     try:
+        params.refinement.phenix_keywords.main.nproc = 1
+        params.refinement.phenix_keywords.real_space_refine.nproc = 1
         for mp in final_maptypes:
-            mp_result = {
-                "map_expl": None,
-                "recref_mtz": "",
-                "recref_pdb": "",
-                "realref": "",
-                "recrealref": "",
-                "fextr_mtz": "",
-            }
-            occupancy_result["map_results"][mp] = mp_result
-            mp_name = mp.split("_map")[0]
-            if progress is not None:
-                progress("calculate", mp_name.upper())
-            print(mp)
-            if mp in ("qFextr_map", "qFgenick_map", "qFextr_calc_map"):
-                os.chdir(new_dirpath_q)
-            elif mp in ("kFextr_map", "kFgenick_map", "kFextr_calc_map"):
-                os.chdir(new_dirpath_k)
-            else:
-                os.chdir(new_dirpath)
-
-            if mp == "qFextr_map":
-                Fextr.fextr(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "qFgenick_map":
-                Fextr.fgenick(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "qFextr_calc_map":
-                Fextr.fextr_calc(qweight=True, kweight=False, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_q_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "kFextr_map":
-                Fextr.fextr(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "kFgenick_map":
-                Fextr.fgenick(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "kFextr_calc_map":
-                Fextr.fextr_calc(qweight=False, kweight=True, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_k_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "Fextr_map":
-                Fextr.fextr(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fextr_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fextr_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "Fgenick_map":
-                Fextr.fgenick(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fgenick_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fgenick_ms, "%s" % (Fextr.maptype), log=log)
-            elif mp == "Fextr_calc_map":
-                Fextr.fextr_calc(qweight=False, kweight=False, outdir_for_negstats=stats_outdir)
-                get_Fextr_stats(occ, Fextr.fextr_calc_ms, Fextr.maptype, FoFo.fdif_c_ms, FoFo_type, stats_outdir)
-                compute_f_sigf(Fextr.fextr_calc_ms, "%s" % (Fextr.maptype), log=log)
-            else:
-                print("%s not recognised as extrapolated map type" % mp)
-
-            print("\n************Map explorer************", file=log)
-            print("\n************Map explorer************")
-            data = ccp4_map.map_reader(file_name=Fextr.ccp4_name_FoFc).data.as_numpy_array()
-            pos = 0
-            neg = 0
-
-            for i in range(mask.shape[1]):
-                tmp = data[mask[0, i]].sum()
-                if tmp > 0:
-                    pos += tmp
-                else:
-                    neg -= tmp
-
-            try:
-                CC = pearsonr(fofo_data.flatten(), data.flatten())[0]
-            except ValueError:
-                print("Pearson correlation factor could not be calculated. The CC will be set to zero.")
-                if warning is not None:
-                    warning(
-                        "Pearson correlation factor could not be calculated for {}. The CC was set to zero.".format(
-                            mp_name,
-                        )
-                    )
-                CC = 0
-
-            mp_result["map_expl"] = [CC, pos, neg, pos + neg]
-            print("m%s-DFcalc map explored" % Fextr.maptype, file=log)
-            print("m%s-DFcalc map explored" % Fextr.maptype)
-
-            if (params.f_and_maps.fast_and_furious is False and params.refinement.run_refinement):
-                if progress is not None:
-                    progress("refine", mp_name.upper())
-                print("\n************Refinements************")
-                print("\n************Refinements************", file=log)
-                mtz_out, pdb_rec, pdb_real, pdb_rec_real = Fextr.refinements(
-                    reciprocal_space_refinement=params.refinement.reciprocal_space,
-                    real_space_refiment=params.refinement.real_space,
-                    pdb_in=DH.pdb_in,
-                    additional=DH.additional,
-                    ligands_list=DH.extract_ligand_codes(),
-                    F_column_labels=Fextr.FM.labels["data"],
-                    phenix_map_column_labels="%s,PHI%s" % (Fextr.FM.labels["map_coefs_map"], Fextr.FM.labels["map_coefs_map"]),
-                    coot_map_column_labels="%s, PHI%s, %s, PHI%s"
-                    % (
-                        Fextr.FM.labels["map_coefs_map"],
-                        Fextr.FM.labels["map_coefs_map"],
-                        Fextr.FM.labels["map_coefs_diff"],
-                        Fextr.FM.labels["map_coefs_diff"],
-                    ),
-                    scattering_table=params.scattering_table,
-                    phenix_keywords=params.refinement.phenix_keywords,
-                    refmac_keywords=params.refinement.refmac_keywords,
-                )
-
-                print("--------------", file=log)
-                mp_result["recref_mtz"] = os.path.abspath(mtz_out)
-                mp_result["recref_pdb"] = os.path.abspath(pdb_rec)
-                mp_result["recrealref"] = os.path.abspath(pdb_rec_real)
-                mp_result["realref"] = os.path.abspath(pdb_real)
-                if warning is not None:
-                    for label, path in (
-                        ("reciprocal mtz", mp_result["recref_mtz"]),
-                        ("reciprocal pdb", mp_result["recref_pdb"]),
-                        ("real-space pdb", mp_result["realref"]),
-                        ("reciprocal+real pdb", mp_result["recrealref"]),
-                    ):
-                        if os.path.isfile(path) is False:
-                            warning(
-                                "ERROR missing {} output after {}".format(
-                                    label,
-                                    mp_name,
-                                )
-                            )
-            elif params.f_and_maps.fast_and_furious:
-                mp_result["fextr_mtz"] = os.path.abspath(Fextr.F_name)
-                if warning is not None and os.path.isfile(mp_result["fextr_mtz"]) is False:
-                    warning("ERROR missing extrapolated mtz after {}".format(mp_name))
-
-            print("\n---> Results in %s" % (os.getcwd()), file=log)
-            print("------------------------------------", file=log)
-            print("\n---> Results in %s" % (os.getcwd()))
-            print("------------------------------------")
+            result = run_single_maptype(
+                mp=mp,
+                occ=occ,
+                params=params,
+                DH=DH,
+                FoFo=FoFo,
+                FoFo_type=FoFo_type,
+                Fextr=Fextr,
+                new_dirpath_q=new_dirpath_q,
+                new_dirpath_k=new_dirpath_k,
+                new_dirpath=new_dirpath,
+                mask=mask,
+                fofo_data=fofo_data,
+                stats_outdir=stats_outdir,
+                progress=progress,
+                warning=warning,
+            )
+            occupancy_result["map_results"][mp] = result["map_result"]
     finally:
         if len(os.listdir(new_dirpath_q)) == 0:
             os.rmdir(new_dirpath_q)
@@ -2281,34 +2363,36 @@ def run_single_occupancy(
     return occupancy_result
 
 
-def occupancy_worker_main(occ, nproc_per_worker, event_queue):
+def group_job_worker_main(job, event_queue):
     global log
-    context = _OCCUPANCY_WORKER_CONTEXT
-    log_path = occupancy_worker_log_path(context["outdir"], occ)
-    stats_dir = occupancy_worker_stats_dir(context["outdir"], occ)
+    context = _GROUP_JOB_WORKER_CONTEXT
+    occ = job["occ"]
+    group_name = job["group"]
+    log_path = group_job_log_path(context["outdir"], occ, group_name)
+    stats_dir = group_job_stats_dir(context["outdir"], occ, group_name)
     start_time = time.time()
 
     def progress(step, maptype):
-        event_queue.put({"type": "state", "occ": occ, "step": step, "maptype": maptype})
+        event_queue.put({"type": "state", "occ": occ, "group": group_name, "step": step, "maptype": maptype})
 
     def warning(message):
-        event_queue.put({"type": "warning", "occ": occ, "message": message})
+        event_queue.put({"type": "warning", "occ": occ, "group": group_name, "message": message})
 
     try:
         worker_log = redirect_process_output(log_path)
         log = worker_log
         params = context["params"]
-        params.refinement.phenix_keywords.main.nproc = nproc_per_worker
-        params.refinement.phenix_keywords.real_space_refine.nproc = nproc_per_worker
-        print("Occupancy worker started for {:.3f}".format(occ))
-        print("Assigned CPUs per occupancy: {:d}".format(nproc_per_worker))
+        params.refinement.phenix_keywords.main.nproc = 1
+        params.refinement.phenix_keywords.real_space_refine.nproc = 1
+        print("Group worker started for occupancy {:.3f} ({})".format(occ, group_name))
+        print("Assigned CPUs per job: 1")
         result = run_single_occupancy(
             occ=occ,
             params=params,
             DH=context["DH"],
             FoFo=context["FoFo"],
             FoFo_type=context["FoFo_type"],
-            final_maptypes=context["final_maptypes"],
+            final_maptypes=job["maptypes"],
             outdir=context["outdir"],
             outname=context["outname"],
             mask=context["mask"],
@@ -2319,13 +2403,14 @@ def occupancy_worker_main(occ, nproc_per_worker, event_queue):
         )
         result["duration"] = time.time() - start_time
         result["log_path"] = log_path
-        result["nproc_per_worker"] = nproc_per_worker
-        event_queue.put({"type": "result", "occ": occ, "result": result})
+        result["group"] = group_name
+        event_queue.put({"type": "result", "occ": occ, "group": group_name, "result": result})
     except Exception:
         event_queue.put(
             {
                 "type": "error",
                 "occ": occ,
+                "group": group_name,
                 "log_path": log_path,
                 "traceback": traceback.format_exc(),
             }
@@ -2334,36 +2419,33 @@ def occupancy_worker_main(occ, nproc_per_worker, event_queue):
 
 
 def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir, outname, mask, fofo_data):
-    global _OCCUPANCY_WORKER_CONTEXT
-    occupancies = list(params.occupancies.list_occ)
+    global _GROUP_JOB_WORKER_CONTEXT
+    jobs = build_parallel_group_jobs(params.occupancies.list_occ, final_maptypes)
     flush_output_streams()
-    worker_count, nproc_per_worker = plan_equal_cpu_workers(
-        len(occupancies),
-        max_workers=params.occupancies.max_parallel,
-    )
+    worker_count = min(len(jobs), resolve_nproc(0))
+    if params.occupancies.max_parallel and params.occupancies.max_parallel > 0:
+        worker_count = min(worker_count, int(params.occupancies.max_parallel))
     ctx = multiprocessing.get_context("fork")
     event_queue = ctx.Queue()
     ordered_results = {}
     running = {}
-    pending = occupancies[:]
+    pending = jobs[:]
 
     print_to_main_log("-----------------------------------------")
-    print_to_main_log("PARALLEL OCCUPANCY EXECUTION")
+    print_to_main_log("PARALLEL GROUP EXECUTION")
     print_to_main_log("-----------------------------------------")
     print_to_main_log(
-        "Launching {:d} occupancy workers across {:d} occupancies with {:d} CPUs per occupancy.".format(
+        "Launching {:d} group workers across {:d} independent occupancy/group jobs with 1 CPU per job.".format(
             worker_count,
-            len(occupancies),
-            nproc_per_worker,
+            len(jobs),
         )
     )
 
-    _OCCUPANCY_WORKER_CONTEXT = {
+    _GROUP_JOB_WORKER_CONTEXT = {
         "params": params,
         "DH": DH,
         "FoFo": FoFo,
         "FoFo_type": FoFo_type,
-        "final_maptypes": final_maptypes,
         "outdir": outdir,
         "outname": outname,
         "mask": mask,
@@ -2373,16 +2455,17 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
     def start_next_worker():
         if not pending:
             return False
-        occ = pending.pop(0)
-        log_path = occupancy_worker_log_path(outdir, occ)
-        process = ctx.Process(target=occupancy_worker_main, args=(occ, nproc_per_worker, event_queue))
-        process.daemon = True
+        job = pending.pop(0)
+        occ = job["occ"]
+        group_name = job["group"]
+        log_path = group_job_log_path(outdir, occ, group_name)
+        process = ctx.Process(target=group_job_worker_main, args=(job, event_queue))
         process.start()
-        running[occ] = process
+        running[(occ, group_name)] = process
         print_to_main_log(
-            "[occupancy {:.3f}] started with {:d} CPUs, worker log: {}".format(
+            "[occupancy {:.3f}][{}] started with 1 CPU, worker log: {}".format(
                 occ,
-                nproc_per_worker,
+                group_name,
                 log_path,
             )
         )
@@ -2406,53 +2489,63 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
                             event["occ"],
                             event["step"],
                             event["maptype"],
+                            group_name=event.get("group"),
                         )
                     )
                 elif event_type == "warning":
-                    print_to_main_log("[occupancy {:.3f}] WARNING {}".format(event["occ"], event["message"]))
+                    print_to_main_log(
+                        "[occupancy {:.3f}][{}] WARNING {}".format(
+                            event["occ"],
+                            event.get("group"),
+                            event["message"],
+                        )
+                    )
                 elif event_type == "result":
                     result = event["result"]
-                    ordered_results[event["occ"]] = result
+                    ordered_results[(event["occ"], event["group"])] = result
                     print_to_main_log(
-                        "[occupancy {:.3f}] completed in {:.1f}s".format(
+                        "[occupancy {:.3f}][{}] completed in {:.1f}s".format(
                             event["occ"],
+                            event["group"],
                             result["duration"],
                         )
                     )
                 elif event_type == "error":
-                    print_to_main_log("[occupancy {:.3f}] ERROR".format(event["occ"]))
+                    print_to_main_log("[occupancy {:.3f}][{}] ERROR".format(event["occ"], event["group"]))
                     for line in event["traceback"].rstrip().splitlines():
                         print_to_main_log(line)
                     for process in running.values():
                         if process.is_alive():
                             process.terminate()
                     raise RuntimeError(
-                        "Occupancy {:.3f} failed. See {}".format(
+                        "Occupancy {:.3f} ({}) failed. See {}".format(
                             event["occ"],
+                            event["group"],
                             event["log_path"],
                         )
                     )
 
             finished = []
-            for occ, process in running.items():
+            for job_key, process in running.items():
                 if process.is_alive():
                     continue
                 process.join()
-                if process.exitcode != 0 and occ not in ordered_results:
+                if process.exitcode != 0 and job_key not in ordered_results:
                     raise RuntimeError(
-                        "Occupancy {:.3f} exited with status {}. See {}".format(
-                            occ,
+                        "Occupancy {:.3f} ({}) exited with status {}. See {}".format(
+                            job_key[0],
+                            job_key[1],
                             process.exitcode,
-                            occupancy_worker_log_path(outdir, occ),
+                            group_job_log_path(outdir, job_key[0], job_key[1]),
                         )
                     )
-                finished.append(occ)
+                finished.append(job_key)
 
-            for occ in finished:
-                running.pop(occ, None)
+            for job_key in finished:
+                running.pop(job_key, None)
                 start_next_worker()
     finally:
-        _OCCUPANCY_WORKER_CONTEXT = None
+        _GROUP_JOB_WORKER_CONTEXT = None
         while not event_queue.empty():
             try:
                 event_queue.get_nowait()
@@ -2460,7 +2553,7 @@ def run_parallel_occupancies(params, DH, FoFo, FoFo_type, final_maptypes, outdir
                 break
         event_queue.close()
 
-    results_in_order = [ordered_results[occ] for occ in occupancies]
+    results_in_order = [ordered_results[(job["occ"], job["group"])] for job in jobs]
     binstats_paths = [result["stats_pickle"] for result in results_in_order]
     negative_paths = [result["negative_pickle"] for result in results_in_order]
     merge_pickle_streams(os.path.join(outdir, "Fextr_binstats.pickle"), binstats_paths)
@@ -2661,11 +2754,11 @@ def run(args):
         params.occupancies.list_occ = occ_lst
     if (
         params.occupancies.parallel == "on"
-        and len(occ_lst) > 1
+        and len(build_parallel_group_jobs(occ_lst, final_maptypes)) > 1
         and supports_fork_parallelism() is False
     ):
         remarks.append(
-            "occupancies.parallel=on requested occupancy workers, but fork-based multiprocessing is unavailable. Falling back to serial execution."
+            "occupancies.parallel=on requested parallel group workers, but fork-based multiprocessing is unavailable. Falling back to serial execution."
         )
     ################################################################
     if len(remarks) > 0:
@@ -3020,7 +3113,7 @@ def run(args):
         os.remove('%s/pymol_movie.py' %(outdir))
 
     fofo_data = ccp4_map.map_reader(file_name=FoFo.ccp4_name).data.as_numpy_array()
-    if occupancy_parallel_enabled(params.occupancies.parallel, params.occupancies.list_occ):
+    if occupancy_parallel_enabled(params.occupancies.parallel, params.occupancies.list_occ, final_maptypes):
         occupancy_results = run_parallel_occupancies(
             params=params,
             DH=DH,

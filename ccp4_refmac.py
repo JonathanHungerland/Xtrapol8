@@ -28,6 +28,7 @@ import iotbx.file_reader
 from mmtbx.scaling.matthews import p_vm_calculator
 from libtbx import adopt_init_args
 from Fextr_utils import get_name
+from parallel_utils import with_worker_suffix
 from iotbx.file_reader import any_file
 from cctbx import miller
 
@@ -55,6 +56,7 @@ class Refmac_refinement(object):
                  jelly_body_sigma      = 0.03,
                  jelly_body_additional_restraints = None,
                  map_sharpening        = False,
+                 worker_id             = None,
                  additional_reciprocal_keywords = []):
         
         #Try this instead of huge repetition of the arguments
@@ -131,7 +133,7 @@ class Refmac_refinement(object):
             for keyword in self.additional_reciprocal_keywords:
                 additional_keywords_line+= "%s " %(keyword)
         
-        script_out = 'launch_refmac.sh'
+        script_out = with_worker_suffix('launch_refmac.sh', self.worker_id)
         i = open(script_out,'w')
         i.write('#!/bin/sh \n\
 %s\n\
@@ -164,20 +166,22 @@ eor\n' %(extra_line, self.mtz_in, mtz_out, self.pdb_in, pdb_out, additional_line
         
         ccp4_map_name = re.sub(r".mtz$", "_2mFo-DFc_filled.ccp4", mtz_out)
         
+        fft_log = with_worker_suffix("fft.log", self.worker_id)
+
         i.write('#generate 2mFo-DFc in ccp4 format\n\
-fft HKLIN %s MAPOUT %s << eof > fft.log\n\
+fft HKLIN %s MAPOUT %s << eof > %s\n\
 LABIN F1=2FOFCWT PHI=PH2FOFCWT\n\
 FILLIN\n\
 end\n\
-eof\n'%(mtz_out, ccp4_map_name))
+eof\n'%(mtz_out, ccp4_map_name, fft_log))
         
         ccp4_diff_map_name = re.sub(r".mtz$", "_mFo-DFc.ccp4", mtz_out)
         
         i.write('#generate mFo-DFc in ccp4 format\n\
-fft HKLIN %s MAPOUT %s << eof > fft.log\n\
+fft HKLIN %s MAPOUT %s << eof > %s\n\
 LABIN F1=FOFCWT PHI=PHFOFCWT\n\
 end\n\
-eof\n'%(mtz_out, ccp4_diff_map_name))
+eof\n'%(mtz_out, ccp4_diff_map_name, fft_log))
         
         i.close()
         os.system("chmod +x %s" %(script_out))
@@ -208,7 +212,7 @@ eof\n'%(mtz_out, ccp4_diff_map_name))
         """
         solc = self.get_solvent_content()
         
-        script_out = 'launch_dm.sh'
+        script_out = with_worker_suffix('launch_dm.sh', self.worker_id)
         i = open(script_out,'w')
         i.write('#!/bin/sh \n\
 \n\
@@ -224,10 +228,12 @@ eor\n' %(mtz_in, mtz_out, log_file, solc, combine, cycles, self.F_column_labels,
       
         ccp4_map_name = re.sub(r".mtz$", ".ccp4", mtz_out)
       
+        fft_log = with_worker_suffix("fft.log", self.worker_id)
+
         i.write('#generate map in ccp4 format\n\
-fft hklin %s mapout %s <<eof > fft.log\n\
+fft hklin %s mapout %s <<eof > %s\n\
 LABI F1=FDM PHI=PHIDM\n\
-eof' %(mtz_out, ccp4_map_name))
+eof' %(mtz_out, ccp4_map_name, fft_log))
 
         i.close()
         os.system("chmod +x %s" %(script_out))

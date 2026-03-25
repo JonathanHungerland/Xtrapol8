@@ -776,7 +776,7 @@ class Fextrapolate(object):
         self.SG = re.search(r"(.+?)\(No",self.fobs_off.space_group_info().symbol_and_number()).group(1)
         self.UC = self.fobs_off.unit_cell()
     
-    def create_output_dirs(self, outdir):
+    def create_output_dirs(self, outdir, maptypes=None):
         """
         Create directories - if not existing yet - for the occupancy and whether or not q-weighting is applied.
         """
@@ -786,12 +786,21 @@ class Fextrapolate(object):
         new_dirpath_q = "%s/%s" %(outdir, new_dir_q)
         new_dirpath_k = "%s/%s" %(outdir, new_dir_k)
         new_dirpath   = "%s/%s" %(outdir, new_dir)
-        if os.path.exists(new_dirpath_q) == False:
-            os.mkdir(new_dirpath_q)
-        if os.path.exists(new_dirpath_k) == False:
-            os.mkdir(new_dirpath_k)
-        if os.path.exists(new_dirpath) == False:
-            os.mkdir(new_dirpath)
+        if maptypes is None:
+            need_q = True
+            need_k = True
+            need_unweighted = True
+        else:
+            need_q = any(mp.startswith("q") for mp in maptypes)
+            need_k = any(mp.startswith("k") for mp in maptypes)
+            need_unweighted = any(not mp.startswith(("q", "k")) for mp in maptypes)
+
+        if need_q:
+            os.makedirs(new_dirpath_q, exist_ok=True)
+        if need_k:
+            os.makedirs(new_dirpath_k, exist_ok=True)
+        if need_unweighted:
+            os.makedirs(new_dirpath, exist_ok=True)
         return new_dirpath_q, new_dirpath_k, new_dirpath
     
     def fextr_q(self):
@@ -2335,7 +2344,14 @@ def run_single_occupancy(
         crystal_gridding=FoFo.get_crystal_gridding(),
     )
 
-    new_dirpath_q, new_dirpath_k, new_dirpath = Fextr.create_output_dirs(outdir)
+    new_dirpath_q, new_dirpath_k, new_dirpath = Fextr.create_output_dirs(outdir, final_maptypes)
+    cleanup_dirs = []
+    if any(mp.startswith("q") for mp in final_maptypes):
+        cleanup_dirs.append(new_dirpath_q)
+    if any(mp.startswith("k") for mp in final_maptypes):
+        cleanup_dirs.append(new_dirpath_k)
+    if any(not mp.startswith(("q", "k")) for mp in final_maptypes):
+        cleanup_dirs.append(new_dirpath)
 
     try:
         params.refinement.phenix_keywords.main.nproc = 1
@@ -2360,12 +2376,9 @@ def run_single_occupancy(
             )
             occupancy_result["map_results"][mp] = result["map_result"]
     finally:
-        if len(os.listdir(new_dirpath_q)) == 0:
-            os.rmdir(new_dirpath_q)
-        if len(os.listdir(new_dirpath)) == 0:
-            os.rmdir(new_dirpath)
-        if len(os.listdir(new_dirpath_k)) == 0:
-            os.rmdir(new_dirpath_k)
+        for path in cleanup_dirs:
+            if os.path.isdir(path) and len(os.listdir(path)) == 0:
+                os.rmdir(path)
         os.chdir(original_cwd)
 
     return occupancy_result

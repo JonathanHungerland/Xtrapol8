@@ -225,6 +225,19 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn("direct_real_space = branch_pool.submit(run_direct_real_space_refinement)", fextr_text)
         self.assertIn("pdb_out_real = direct_real_space.result()", fextr_text)
 
+    def test_parallel_occupancy_workers_only_create_needed_output_dirs(self):
+        """Covers shared occupancy output dirs so parallel q/k/unweighted workers do not race on unrelated mkdir/rmdir calls."""
+        fextr_text = (REPO_ROOT / "Fextr.py").read_text()
+        self.assertIn("def create_output_dirs(self, outdir, maptypes=None):", fextr_text)
+        self.assertIn('need_q = any(mp.startswith("q") for mp in maptypes)', fextr_text)
+        self.assertIn('need_k = any(mp.startswith("k") for mp in maptypes)', fextr_text)
+        self.assertIn('need_unweighted = any(not mp.startswith(("q", "k")) for mp in maptypes)', fextr_text)
+        self.assertIn("os.makedirs(new_dirpath_q, exist_ok=True)", fextr_text)
+        self.assertIn("os.makedirs(new_dirpath_k, exist_ok=True)", fextr_text)
+        self.assertIn("os.makedirs(new_dirpath, exist_ok=True)", fextr_text)
+        self.assertIn("Fextr.create_output_dirs(outdir, final_maptypes)", fextr_text)
+        self.assertIn("for path in cleanup_dirs:", fextr_text)
+
     def test_gui_scrolled_panels_disable_focus_driven_scroll_into_view(self):
         """Covers wx ScrolledPanel focus handling so tab/page switches do not trigger deprecated fractional Scroll() calls."""
         panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()

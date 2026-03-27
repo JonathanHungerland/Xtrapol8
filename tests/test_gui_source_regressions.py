@@ -257,21 +257,42 @@ class GuiSourceRegressionTests(unittest.TestCase):
         self.assertIn('Pymol_movie(successful_occupancies, resids_lst = residlst).write_pymol_appearance', fextr_text)
         self.assertIn('recref_pdb_lst[successful_occupancies.index(occ)+1]', fextr_text)
 
-    def test_main_tab_fextr_updates_are_throttled_to_active_page(self):
-        """Covers GUI responsiveness so hidden Main-tab plot updates do not build all remaining matplotlib widgets in one timer tick."""
+    def test_main_tab_population_is_deferred_until_finished_or_explicit_refresh(self):
+        """Covers GUI responsiveness so active runs do not build Main-tab matplotlib widgets from timers while the user swaps tabs."""
         x8_gui_text = (REPO_ROOT / "X8_gui.py").read_text()
         panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertIn("self.loaded_main_files = set()", panel_log_text)
         self.assertIn("self.loaded_fextr_files = set()", panel_log_text)
+        self.assertIn("self.pending_main_files = []", panel_log_text)
+        self.assertIn("self.pending_fextr_files = []", panel_log_text)
+        self.assertIn("self.refresh_later = None", panel_log_text)
+        self.assertIn("def queue_main_file(self, filepath):", panel_log_text)
+        self.assertIn("def queue_fextr_file(self, maptype, filepath):", panel_log_text)
+        self.assertIn("def cancel_refresh(self):", panel_log_text)
+        self.assertIn("def schedule_refresh(self, delay_ms=150):", panel_log_text)
+        self.assertIn("def _run_scheduled_refresh(self):", panel_log_text)
+        self.assertIn("def refresh_pending(self):", panel_log_text)
+        self.assertIn("def populate_finished_run(self, options):", panel_log_text)
         self.assertIn("self.loaded_fextr_files.clear()", panel_log_text)
+        self.assertIn("self.pending_fextr_files = []", panel_log_text)
+        self.assertNotIn("self.queue_fextr_file(maptype, filepath)", panel_log_text.split("def populate_finished_run(self, options):", 1)[1].split("def addPlot(self, pickle_file):", 1)[0])
         self.assertIn("if self.timerFextr.IsRunning():\n            self.timerFextr.Stop()", x8_gui_text)
         self.assertIn("if self.timer.IsRunning():\n            self.timer.Stop()", x8_gui_text)
-        self.assertIn("if any(thread is not None and thread.is_alive() for thread in self.notebook.threads):\n                self.timerFextr.Start(2000)", x8_gui_text)
-        self.assertIn("if any(thread is not None and thread.is_alive() for thread in self.notebook.threads):\n                self.timer.Start(2000)", x8_gui_text)
-        self.assertIn("if tab.parent.GetSelection() != 1:\n                        return", x8_gui_text)
-        self.assertIn("for png_template in self.Fextr_pngs:", x8_gui_text)
-        self.assertIn("filepath not in tab.loaded_fextr_files", x8_gui_text)
-        self.assertIn("tab.loaded_fextr_files.add(filepath)", x8_gui_text)
-        self.assertIn("break", x8_gui_text)
+        self.assertNotIn("self.timer.Start(2000)", x8_gui_text)
+        self.assertNotIn("self.timerFextr.Start(2000)", x8_gui_text)
+        self.assertIn("self.tabImg.schedule_refresh()", x8_gui_text)
+        self.assertIn("self.tabImg.cancel_refresh()", x8_gui_text)
+        self.assertIn("self.tabImg.populate_finished_run(self.options)", x8_gui_text)
+        self.assertIn("queued_any = False", x8_gui_text)
+        self.assertIn("if queued_any:\n                        tab.schedule_refresh()", x8_gui_text)
+        self.assertNotIn("tab.queue_main_file(filepath)", x8_gui_text)
+        self.assertIn("if self.parent.GetSelection() != 1:\n            return False", panel_log_text)
+
+    def test_panel_log_clears_sizer_items_with_is_spacer_method_calls(self):
+        """Covers tab refresh cleanup so Phoenix sizer items are destroyed instead of detached by a truthy bound-method check."""
+        panel_log_text = (REPO_ROOT / "gui" / "panelLog.py").read_text()
+        self.assertNotIn("if item.IsSpacer:", panel_log_text)
+        self.assertEqual(panel_log_text.count("if item.IsSpacer():"), 2)
 
     def test_gui_scrolled_panels_disable_focus_driven_scroll_into_view(self):
         """Covers wx ScrolledPanel focus handling so tab/page switches do not trigger deprecated fractional Scroll() calls."""

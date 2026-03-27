@@ -297,7 +297,11 @@ class TabMainImg(ScrolledPanel):
         self.SetSizer(self.mainSizer)
         self.SetAutoLayout(1)
         self.photoMaxSize = 1000
+        self.loaded_main_files = set()
         self.loaded_fextr_files = set()
+        self.pending_main_files = []
+        self.pending_fextr_files = []
+        self.refresh_later = None
         self.mapping = {
             "Riso_CCiso.pickle": self.plot_Riso_CCiso,
             "q_estimation.pickle": self.plot_q_estimation,
@@ -310,8 +314,100 @@ class TabMainImg(ScrolledPanel):
                       'Fextr_calc', 'qFextr_calc', 'kFextr_calc']:
             self.mapping["alpha_occupancy_determination_%s.pickle"  % fextr] = self.plot_alpha_occupancy_determination
             self.mapping["%s_refinement_R-factors_per_alpha.pickle" % fextr] = self.plot_refinement_Rfactors_per_alpha
+        self.main_output_files = [
+            "Riso_CCiso.pickle",
+            "q_estimation.pickle",
+            "k_estimation.pickle",
+            "summed_difference_peaks.png",
+            "Fextr_binstats.pickle",
+        ]
+        self.fextr_output_files = [
+            "Fextr_binstats.pickle",
+            "Fextr_negative.pickle",
+            "alpha_occupancy_determination_tmp.pickle",
+            "tmp_refinement_R-factors_per_alpha.pickle",
+            "Distance_difference_plot_tmp.png",
+        ]
 
+    def queue_main_file(self, filepath):
+        if filepath in self.loaded_main_files or filepath in self.pending_main_files:
+            return False
+        self.pending_main_files.append(filepath)
+        return True
 
+    def queue_fextr_file(self, maptype, filepath):
+        queued = (maptype, filepath)
+        if filepath in self.loaded_fextr_files or queued in self.pending_fextr_files:
+            return False
+        self.pending_fextr_files.append(queued)
+        return True
+
+    def cancel_refresh(self):
+        if self.refresh_later is not None:
+            try:
+                self.refresh_later.Stop()
+            except Exception:
+                pass
+            self.refresh_later = None
+
+    def schedule_refresh(self, delay_ms=150):
+        if self.parent.GetSelection() != 1:
+            return False
+        if not self.pending_main_files and not self.pending_fextr_files:
+            return False
+        if self.refresh_later is not None:
+            return False
+        self.refresh_later = wx.CallLater(delay_ms, self._run_scheduled_refresh)
+        return True
+
+    def _run_scheduled_refresh(self):
+        self.refresh_later = None
+        if self.parent.GetSelection() != 1:
+            return
+        if self.refresh_pending():
+            self.schedule_refresh()
+
+    def refresh_pending(self):
+        if self.parent.GetSelection() != 1:
+            return False
+        if self.pending_main_files:
+            filepath = self.pending_main_files.pop(0)
+            if os.path.isfile(filepath):
+                if filepath.endswith('pickle'):
+                    self.addPlot(filepath)
+                else:
+                    self.addImg(filepath)
+            return True
+        if self.pending_fextr_files and hasattr(self, 'FextrSelection'):
+            maptype, filepath = self.pending_fextr_files.pop(0)
+            if os.path.isfile(filepath):
+                if filepath.endswith('pickle'):
+                    self.addFextrPlot(maptype, filepath)
+                else:
+                    self.addFextrImg(filepath)
+            return True
+        return False
+
+    def get_current_maptype(self):
+        if not hasattr(self, 'FextrSelection'):
+            return None
+        fextr = self.FextrSelection.GetStringSelection()
+        if fextr[0] in ['q', 'k']:
+            return fextr[0] + fextr[1].upper() + fextr[2:]
+        return fextr[0].upper() + fextr[1:]
+
+    def populate_finished_run(self, options):
+        outdir = options.output.outdir
+        for filename in self.main_output_files:
+            filepath = os.path.join(outdir, filename)
+            if os.path.isfile(filepath):
+                self.queue_main_file(filepath)
+
+        if not hasattr(self, 'FextrSelection'):
+            self.addChoices(options.f_and_maps.f_extrapolated_and_maps, trigger_update=False)
+            self.FextrSelection.Bind(wx.EVT_CHOICE, self.Clear)
+
+        self.schedule_refresh(delay_ms=0)
 
 
     def addPlot(self, pickle_file):
@@ -330,7 +426,10 @@ class TabMainImg(ScrolledPanel):
         toolbar.update()
         self.plotSizer.AddSpacer(60)
         #self.SetSizer(self.sizer)
-        self.Fit()
+        self.loaded_main_files.add(pickle_file)
+        self.plotSizer.Layout()
+        self.mainSizer.Layout()
+        self.FitInside()
 
     def plot_k_estimation(self, pickle_file):
         with open(pickle_file, 'rb') as stats_file:
@@ -667,9 +766,10 @@ class TabMainImg(ScrolledPanel):
         self.mainSizer.Add(self.newimg, proportion=0,  flag=wx.ALIGN_CENTER_HORIZONTAL)
         self.mainSizer.Add(wx.StaticLine(self, wx.ID_ANY))
         self.mainSizer.AddSpacer(60)
+        self.loaded_main_files.add(filepath)
         self.FitInside()
 
-    def addChoices(self, selection):
+    def addChoices(self, selection, trigger_update=True):
         self.FextrSelection = wx.Choice(self, wx.ID_ANY, choices=selection)
         self.mainSizer.Add(self.FextrSelection, 0, wx.ALIGN_CENTER)
         self.FextrSelection.SetSelection(0)
@@ -678,8 +778,8 @@ class TabMainImg(ScrolledPanel):
         self.mainSizer.AddSpacer(30)
         self.mainSizer.Add(self.ImgSizer, 0, wx.ALIGN_CENTER_HORIZONTAL)
         self.FitInside()
-        index = self.parent.GetSelection()
-        pub.sendMessage("updateFextr", evt=None)
+        if trigger_update:
+            pub.sendMessage("updateFextr", evt=None)
 
     def addFextrPlot(self, fextr, pickle_file):
         _, pickle_name = os.path.split(pickle_file)
@@ -696,6 +796,7 @@ class TabMainImg(ScrolledPanel):
         toolbar.update()
         self.ImgSizer.AddSpacer(60)
         #self.SetSizer(self.sizer)
+        self.loaded_fextr_files.add(pickle_file)
         self.FitInside()
 
     def plot_sigmas(self, prefix=None, pickle_file='Fextr_binstats.pickle'):
@@ -838,17 +939,19 @@ class TabMainImg(ScrolledPanel):
 
         self.newimg = wx.StaticBitmap(self, wx.ID_ANY, wx.Bitmap(img))
         self.ImgSizer.Add(self.newimg, proportion=0,  flag=wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, border=20)
+        self.loaded_fextr_files.add(filepath)
         self.FitInside()
 
     def Clear(self, evt):
         while not self.ImgSizer.IsEmpty():
             item = self.ImgSizer.GetItem(0)
-            if item.IsSpacer:
+            if item.IsSpacer():
                 self.ImgSizer.Detach(0)
             else:
                 window = self.ImgSizer.GetItem(0).GetWindow()
                 window.Destroy()
         self.loaded_fextr_files.clear()
+        self.pending_fextr_files = []
         pub.sendMessage("updateFextr", evt=None)#,tabindex=index)
 
 class TabOccResults(ScrolledPanel):
@@ -939,7 +1042,7 @@ class TabOccResults(ScrolledPanel):
 
         while not self.ImgSizer.IsEmpty():
             item = self.ImgSizer.GetItem(0)
-            if item.IsSpacer:
+            if item.IsSpacer():
                 self.ImgSizer.Detach(0)
             else:
                 window = self.ImgSizer.GetItem(0).GetWindow()

@@ -100,11 +100,17 @@ class NoteBookResults(AuiNotebook):
 
     def OnPageChanged(self, evt):
         index = self.GetSelection()
+        if index == 1:
+            self.tabImg.schedule_refresh()
+        else:
+            self.tabImg.cancel_refresh()
         if index == 2:
             self.tabOcc.onSelection(evt)
+        evt.Skip()
 
     def onFinished(self):
         # Update statusbar
+        self.tabImg.populate_finished_run(self.options)
         if self.options.output.generate_fofo_only:
             self.tabLog.CreateCoot()
         else:
@@ -319,32 +325,6 @@ class MainFrame(wx.Frame):
         """
         if self.timer.IsRunning():
             self.timer.Stop()
-        try:
-            run = self.notebook.GetSelection() - 1
-            if run >= 0:
-                if self.notebook.threads[run] is not None and self.notebook.threads[run].is_alive():
-                    if self.pngs_idx[run] < len(self.pngs):
-                        png = self.pngs[self.pngs_idx[run]]
-                        
-                        filepath = os.path.join(self.inputs[run].output.outdir, png)
-
-                        if os.path.isfile(filepath):
-                            if filepath.endswith('pickle'):
-                                self.notebook.ResultsBooks[run].tabImg.addPlot(filepath)
-                            else:
-                                self.notebook.ResultsBooks[run].tabImg.addImg(filepath)
-
-                            if self.pngs_idx[run] <= len(self.pngs) - 1:
-                                self.pngs_idx[run] += 1
-                    else:
-                        if not self.timerFextr.IsRunning():
-                            self.timerFextr.Start(2000)
-                        if not hasattr(self.notebook.ResultsBooks[run].tabImg, 'FextrSelection'):
-                            self.notebook.ResultsBooks[run].tabImg.addChoices(self.inputs[run].f_and_maps.f_extrapolated_and_maps)
-                            self.notebook.ResultsBooks[run].tabImg.FextrSelection.Bind(wx.EVT_CHOICE, self.notebook.ResultsBooks[run].tabImg.Clear)
-        finally:
-            if any(thread is not None and thread.is_alive() for thread in self.notebook.threads):
-                self.timer.Start(2000)
 
     def updateFextr(self, evt):
         if self.timerFextr.IsRunning():
@@ -352,11 +332,13 @@ class MainFrame(wx.Frame):
         try:
             run = self.notebook.GetSelection() - 1
             if run >= 0:
-                if hasattr(self.notebook.ResultsBooks[run].tabImg, 'FextrSelection'):
+                thread = self.notebook.threads[run]
+                if (thread is None or not thread.is_alive()) and hasattr(self.notebook.ResultsBooks[run].tabImg, 'FextrSelection'):
                     tab = self.notebook.ResultsBooks[run].tabImg
                     if tab.parent.GetSelection() != 1:
                         return
                     Fextr = tab.FextrSelection.GetStringSelection()
+                    queued_any = False
                     for png_template in self.Fextr_pngs:
                         if Fextr[0] in ['q','k']:
                             maptype = Fextr[0] + Fextr[1].upper() + Fextr[2:]
@@ -365,16 +347,13 @@ class MainFrame(wx.Frame):
                         png = png_template.replace('tmp', maptype)
                         filepath = os.path.join(self.inputs[run].output.outdir, png)
 
-                        if os.path.isfile(filepath) and filepath not in tab.loaded_fextr_files:
-                            if filepath.endswith('pickle'):
-                                tab.addFextrPlot(maptype, filepath)
-                            else:
-                                tab.addFextrImg(filepath)
-                            tab.loaded_fextr_files.add(filepath)
-                            break
+                        if os.path.isfile(filepath):
+                            if tab.queue_fextr_file(maptype, filepath):
+                                queued_any = True
+                    if queued_any:
+                        tab.schedule_refresh()
         finally:
-            if any(thread is not None and thread.is_alive() for thread in self.notebook.threads):
-                self.timerFextr.Start(2000)
+            pass
 
     def OnPageClose(self, evt):
         # will check that the run is not running - will clean its thread list accordingly
@@ -432,8 +411,6 @@ class MainFrame(wx.Frame):
             modified_phil = master_phil.format(python_object=self.input_phil)
             modified_phil.show(out=open("tmp.phil", "w"))
             self.AddResultsTab()
-            if not self.timer.IsRunning():
-                self.timer.Start(2000)
             thread = X8Thread(self.input_phil, self.notebook.Runs)
     
             ## All this should be in a class that deals with the outputs
@@ -456,34 +433,7 @@ class MainFrame(wx.Frame):
             self.notebook.threads.append(None)
             run = self.notebook.Runs
             self.notebook.ResultsBooks[run].tabLog.LogTextCtrl.WriteText(open(log).read())
-            for png in self.pngs:
-                filepath = os.path.join(PathResults, png)
-                if os.path.isfile(filepath):
-                    #print(png)
-                    if filepath.endswith("pickle"):
-                        self.notebook.ResultsBooks[run].tabImg.addPlot(filepath)
-                    else:
-                        self.notebook.ResultsBooks[run].tabImg.addImg(filepath)
-            self.notebook.ResultsBooks[run].tabImg.addChoices(self.inputs[run].f_and_maps.f_extrapolated_and_maps)
-            self.notebook.ResultsBooks[run].tabImg.FextrSelection.Bind(wx.EVT_CHOICE,
-                                                                       self.notebook.ResultsBooks[run].tabImg.Clear)
-
-            #if hasattr(self.notebook.ResultsBooks[run].tabImg, 'FextrSelection'):
-            tab = self.notebook.ResultsBooks[run].tabImg
-            Fextr = tab.FextrSelection.GetStringSelection()
-            Total = tab.ImgSizer.GetItemCount()
-            for j in range(Total, len(self.Fextr_pngs)):
-                if Fextr[0] in ['q','k']:
-                    Fextr = Fextr[0] + Fextr[1].upper() + Fextr[2:]
-                else:
-                    Fextr = Fextr[0].upper() + Fextr[1:]
-                png = self.Fextr_pngs[j].replace('tmp', Fextr)
-                filepath = os.path.join(PathResults, png)
-                if os.path.isfile(filepath):
-                    if filepath.endswith('pickle'):
-                        tab.addFextrPlot(Fextr, filepath)
-                    else:
-                        tab.addFextrImg(filepath)
+            self.notebook.ResultsBooks[run].tabImg.populate_finished_run(self.inputs[run])
             if self.inputs[run].output.generate_fofo_only:
                 self.notebook.ResultsBooks[run].tabLog.CreateCoot()
             else:
